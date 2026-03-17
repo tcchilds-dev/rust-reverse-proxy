@@ -1,0 +1,15 @@
+[server]
+addr = "0.0.0.0:8080"
+request_timeout_secs = 30
+max_concurrent_requests = 1000
+
+[logging]
+level = "debug"
+
+[[routes]]
+path_prefix = "/a"
+backends = ["http://localhost:3001"]
+
+[[routes]]
+path_prefix = "/b"
+backends = ["http://localhost:3002"]
