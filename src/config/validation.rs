@@ -61,5 +61,3 @@ fn validate_backend_urls(routes: &[RouteConfig]) -> bool {
         .flat_map(|r| r.backends.iter())
         .all(|b| Url::parse(b).is_ok())
 }
-
-// TODO: add unit tests

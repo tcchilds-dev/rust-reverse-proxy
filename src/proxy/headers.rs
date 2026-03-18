@@ -27,7 +27,7 @@ pub fn handle_request_headers(
     headers.remove("upgrade");
 
     if let Some(host) = forwarded_host {
-        headers.insert("x-forwarded-for", host);
+        headers.insert("x-forwarded-host", host);
     };
 
     let forwarded_for = match headers.get("x-forwarded-for") {
