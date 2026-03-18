@@ -8,8 +8,12 @@ level = "debug"
 
 [[routes]]
 path_prefix = "/a"
-backends = ["http://localhost:3001"]
+backends = [
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "http://localhost:3003",
+]
 
 [[routes]]
 path_prefix = "/b"
-backends = ["http://localhost:3002"]
+backends = ["http://localhost:3005"]
