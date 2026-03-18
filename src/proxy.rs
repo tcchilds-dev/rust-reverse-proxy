@@ -27,7 +27,7 @@ fn build_url(backend: &str, path: &str, query: Option<&str>) -> Result<Url> {
     Ok(url)
 }
 
-#[axum::debug_handler]
+#[tracing::instrument(skip(state))]
 pub async fn proxy_handler(
     State(state): State<AppState>,
     request: Request,
@@ -49,6 +49,8 @@ pub async fn proxy_handler(
 
     let url = build_url(&guard.url, path, query).expect("Valid path and backend should not fail.");
 
+    tracing::debug!(%url, "forwarding request");
+
     let result = state
         .client
         .request(method, url)
@@ -57,6 +59,8 @@ pub async fn proxy_handler(
         .send()
         .await
         .map_err(ProxyError::UpstreamUnreachable)?;
+
+    tracing::debug!(status = %result.status(), "upstream response");
 
     let mut response_builder = axum::response::Response::builder().status(result.status());
 
