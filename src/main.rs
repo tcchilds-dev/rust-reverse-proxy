@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use anyhow::Result;
-use axum::Router;
+use axum::{Router, routing::get};
 use proxy::{config::Config, proxy::proxy_handler, state::AppState};
 use reqwest::StatusCode;
 use tower::{ServiceBuilder, limit::ConcurrencyLimitLayer};
@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
     let max_concurrent_requests = config.server.max_concurrent_requests;
 
     let router = Router::new()
+        .route("/healthz", get(healthz))
         .fallback(proxy_handler)
         .with_state(state)
         .layer(
@@ -45,4 +46,8 @@ async fn main() -> Result<()> {
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+async fn healthz() -> StatusCode {
+    StatusCode::OK
 }
