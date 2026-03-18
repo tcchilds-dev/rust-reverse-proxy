@@ -1,9 +1,16 @@
+use std::net::IpAddr;
+
 use axum::{
     http::{HeaderMap, HeaderValue},
     response::Response,
 };
 
-pub fn handle_request_headers(mut headers: HeaderMap, backend: &str) -> HeaderMap {
+pub fn handle_request_headers(
+    mut headers: HeaderMap,
+    backend: &str,
+    client_ip: IpAddr,
+    scheme: &str,
+) -> HeaderMap {
     let forwarded_host = headers.get("host").cloned();
 
     headers.insert(
@@ -23,7 +30,24 @@ pub fn handle_request_headers(mut headers: HeaderMap, backend: &str) -> HeaderMa
         headers.insert("x-forwarded-for", host);
     };
 
-    // TODO: inject forwarded_for and forwarded_proto
+    let forwarded_for = match headers.get("x-forwarded-for") {
+        Some(existing) => format!(
+            "{}, {client_ip}",
+            existing
+                .to_str()
+                .expect("x-forwarded-for should be valid ASCII")
+        ),
+        None => client_ip.to_string(),
+    };
+    headers.insert(
+        "x-forwarded-for",
+        HeaderValue::from_str(&forwarded_for)
+            .expect("existing x-forwarded-for header should be valid UTF-8"),
+    );
+
+    if let Ok(forwarded_proto) = HeaderValue::from_str(scheme) {
+        headers.insert("x-forwarded-proto", forwarded_proto);
+    }
 
     headers
 }

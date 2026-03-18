@@ -1,8 +1,11 @@
 pub mod headers;
 
+use std::net::SocketAddr;
+
 use anyhow::Result;
 use axum::{
-    extract::{Request, State},
+    Extension,
+    extract::{ConnectInfo, Request, State},
     response::Response,
 };
 use reqwest::Url;
@@ -10,7 +13,7 @@ use reqwest::Url;
 use crate::{
     error::ProxyError,
     proxy::headers::{handle_request_headers, handle_response_headers},
-    state::{AppState, Route},
+    state::{AppState, Route, Scheme},
 };
 
 fn find_matching_route<'a>(path: &str, routes: &'a [Route]) -> Option<&'a Route> {
@@ -30,6 +33,8 @@ fn build_url(backend: &str, path: &str, query: Option<&str>) -> Result<Url> {
 #[tracing::instrument(skip(state))]
 pub async fn proxy_handler(
     State(state): State<AppState>,
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+    Extension(Scheme(scheme)): Extension<Scheme>,
     request: Request,
 ) -> Result<Response, ProxyError> {
     let (parts, body) = request.into_parts();
@@ -45,7 +50,7 @@ pub async fn proxy_handler(
 
     let guard = route.balancer.pick();
 
-    let headers = handle_request_headers(parts.headers, &guard.url);
+    let headers = handle_request_headers(parts.headers, &guard.url, client_addr.ip(), scheme);
 
     let url = build_url(&guard.url, path, query).expect("Valid path and backend should not fail.");
 

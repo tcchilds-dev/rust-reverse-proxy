@@ -1,8 +1,12 @@
-use std::{path::Path, time::Duration};
+use std::{net::SocketAddr, path::Path, time::Duration};
 
 use anyhow::Result;
-use axum::{Router, routing::get};
-use proxy::{config::Config, proxy::proxy_handler, state::AppState};
+use axum::{Extension, Router, routing::get};
+use proxy::{
+    config::Config,
+    proxy::proxy_handler,
+    state::{AppState, Scheme},
+};
 use reqwest::StatusCode;
 use tower::{ServiceBuilder, limit::ConcurrencyLimitLayer};
 use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
@@ -41,9 +45,15 @@ async fn main() -> Result<()> {
                 .layer(ConcurrencyLimitLayer::new(max_concurrent_requests)),
         );
 
+    let http_router = router.layer(Extension(Scheme("http")));
+
     let listener = tokio::net::TcpListener::bind(config.server.addr).await?;
 
-    axum::serve(listener, router).await?;
+    axum::serve(
+        listener,
+        http_router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

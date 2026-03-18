@@ -7,6 +7,9 @@ use crate::{
     config::Config,
 };
 
+#[derive(Clone)]
+pub struct Scheme(pub &'static str);
+
 pub struct Route {
     pub path_prefix: String,
     pub balancer: Arc<dyn LoadBalancer>,
