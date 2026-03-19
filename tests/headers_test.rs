@@ -41,8 +41,7 @@ async fn strips_hop_by_hop_headers() {
 async fn injects_x_forwarded_for() {
     let (proxy_port, _) = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
 
     let echo = parse_echo(&body);
@@ -74,8 +73,7 @@ async fn appends_to_existing_x_forwarded_for() {
 async fn injects_x_forwarded_proto() {
     let (proxy_port, _) = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
 
     let echo = parse_echo(&body);
@@ -86,8 +84,7 @@ async fn injects_x_forwarded_proto() {
 async fn rewrites_host_header_to_backend() {
     let (proxy_port, backend_port) = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
 
     let echo = parse_echo(&body);
@@ -102,8 +99,7 @@ async fn rewrites_host_header_to_backend() {
 async fn injects_x_forwarded_host() {
     let (proxy_port, _) = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
 
     let echo = parse_echo(&body);

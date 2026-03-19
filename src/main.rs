@@ -2,6 +2,7 @@ use std::{net::SocketAddr, path::Path, time::Duration};
 
 use anyhow::Result;
 use axum::{Extension, Router, routing::get};
+use axum_server::tls_rustls::RustlsConfig;
 use proxy::{
     config::Config,
     proxy::proxy_handler,
@@ -10,7 +11,7 @@ use proxy::{
 use reqwest::StatusCode;
 use tower::{ServiceBuilder, limit::ConcurrencyLimitLayer};
 use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
-use tracing::Level;
+use tracing::{Level, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -45,15 +46,40 @@ async fn main() -> Result<()> {
                 .layer(ConcurrencyLimitLayer::new(max_concurrent_requests)),
         );
 
-    let http_router = router.layer(Extension(Scheme("http")));
+    let http_router = router.clone().layer(Extension(Scheme("http")));
+    let http_listener = tokio::net::TcpListener::bind(config.server.addr).await?;
+    info!("HTTP listening on {}", config.server.addr);
 
-    let listener = tokio::net::TcpListener::bind(config.server.addr).await?;
+    match config.tls {
+        Some(tls_config) => {
+            let rustls_config =
+                RustlsConfig::from_pem_file(&tls_config.cert_path, &tls_config.key_path).await?;
+            let https_router = router.layer(Extension(Scheme("https")));
 
-    axum::serve(
-        listener,
-        http_router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+            info!("HTTPS server listening on {}", tls_config.addr);
+
+            let http_server = axum::serve(
+                http_listener,
+                http_router.into_make_service_with_connect_info::<SocketAddr>(),
+            );
+            let https_server = axum_server::bind_rustls(tls_config.addr, rustls_config)
+                .serve(https_router.into_make_service_with_connect_info::<SocketAddr>());
+
+            tokio::select! {
+                result = http_server.into_future() => result?,
+                result = https_server => result?,
+            }
+        }
+        None => {
+            info!("TLS not configured, running HTTP only");
+
+            axum::serve(
+                http_listener,
+                http_router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await?;
+        }
+    }
 
     Ok(())
 }

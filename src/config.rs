@@ -12,6 +12,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
     pub routes: Vec<RouteConfig>,
+    pub tls: Option<TlsConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -30,6 +31,13 @@ pub struct LoggingConfig {
 pub struct RouteConfig {
     pub path_prefix: String,
     pub backends: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+    pub addr: SocketAddr,
 }
 
 impl Config {
