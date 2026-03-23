@@ -11,6 +11,7 @@ use crate::config::validation::validate_config;
 pub struct Config {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
+    pub rate_limiting: RateLimitConfig,
     pub routes: Vec<RouteConfig>,
     pub tls: Option<TlsConfig>,
 }
@@ -38,6 +39,12 @@ pub struct TlsConfig {
     pub cert_path: String,
     pub key_path: String,
     pub addr: SocketAddr,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RateLimitConfig {
+    pub requests_per_second: u32,
+    pub burst_size: u32,
 }
 
 impl Config {

@@ -10,7 +10,7 @@ use axum::extract::Request;
 use axum::{Extension, Router, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
 use http_body_util::BodyExt;
-use proxy::config::{Config, LoggingConfig, RouteConfig, ServerConfig, TlsConfig};
+use proxy::config::{Config, LoggingConfig, RateLimitConfig, RouteConfig, ServerConfig, TlsConfig};
 use proxy::proxy::proxy_handler;
 use proxy::state::{AppState, Scheme};
 use reqwest::{Method, StatusCode};
@@ -74,6 +74,10 @@ pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
         },
         routes,
         tls: None,
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 100,
+            burst_size: 200,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -195,6 +199,10 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
             key_path: certs.key_path.to_str().unwrap().to_string(),
             addr: "127.0.0.1:0".parse().unwrap(),
         }),
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 100,
+            burst_size: 200,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();

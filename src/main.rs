@@ -6,6 +6,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use proxy::{
     config::Config,
     proxy::proxy_handler,
+    rate_limiter::RateLimitLayer,
     state::{AppState, Scheme},
 };
 use reqwest::StatusCode;
@@ -31,11 +32,16 @@ async fn main() -> Result<()> {
 
     let timeout = Duration::from_secs(config.server.request_timeout_secs);
     let max_concurrent_requests = config.server.max_concurrent_requests;
+    let rate_limit_layer = RateLimitLayer::new(
+        config.rate_limiting.requests_per_second,
+        config.rate_limiting.burst_size,
+    );
 
     let router = Router::new()
         .route("/healthz", get(healthz))
         .fallback(proxy_handler)
         .with_state(state)
+        .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())

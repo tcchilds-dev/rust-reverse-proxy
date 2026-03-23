@@ -11,6 +11,10 @@ addr = "0.0.0.0:8443"
 [logging]
 level = "debug"
 
+[rate_limiting]
+requests_per_second = 100
+burst_size = 200
+
 [[routes]]
 path_prefix = "/a"
 backends = [
