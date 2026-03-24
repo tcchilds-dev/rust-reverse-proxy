@@ -15,6 +15,11 @@ level = "debug"
 requests_per_second = 100
 burst_size = 200
 
+[health_checks]
+path = "/health"
+interval_secs = 10
+timeout_secs = 3
+
 [[routes]]
 path_prefix = "/a"
 backends = [

@@ -20,7 +20,6 @@ async fn requests_within_burst_are_allowed() {
     )
     .await;
 
-    // All 5 requests should succeed within the burst allowance
     for _ in 0..5 {
         let (status, body) = proxy_get(proxy_port, "/test").await;
         assert_eq!(status, StatusCode::OK);
@@ -32,7 +31,6 @@ async fn requests_within_burst_are_allowed() {
 #[tokio::test]
 async fn returns_429_when_rate_limit_exceeded() {
     let port = spawn_echo_backend("backend").await;
-    // 1 request per second, burst of 1 — second request should be rejected
     let proxy_port = spawn_proxy_with_rate_limit(
         vec![RouteConfig {
             path_prefix: "/".to_string(),
@@ -63,11 +61,9 @@ async fn rate_limit_response_includes_retry_after_header() {
     )
     .await;
 
-    // Exhaust the burst
     proxy_get(proxy_port, "/test").await;
 
-    let (status, headers, _) =
-        proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    let (status, headers, _) = proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     assert!(
         headers.contains_key("retry-after"),
@@ -88,14 +84,12 @@ async fn rate_limit_recovers_after_waiting() {
     )
     .await;
 
-    // Exhaust the burst
     let (status, _) = proxy_get(proxy_port, "/test").await;
     assert_eq!(status, StatusCode::OK);
 
     let (status, _) = proxy_get(proxy_port, "/test").await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 
-    // Wait for the rate limiter to replenish
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let (status, _) = proxy_get(proxy_port, "/test").await;
@@ -104,7 +98,6 @@ async fn rate_limit_recovers_after_waiting() {
 
 #[tokio::test]
 async fn normal_traffic_unaffected_by_high_limit() {
-    // Default spawn_proxy uses 100 rps / 200 burst — normal test traffic should pass
     let port = spawn_echo_backend("backend").await;
     let proxy_port = spawn_proxy(vec![RouteConfig {
         path_prefix: "/".to_string(),

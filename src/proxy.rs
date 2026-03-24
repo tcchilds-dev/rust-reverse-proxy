@@ -48,7 +48,9 @@ pub async fn proxy_handler(
         return Err(ProxyError::NoRouteFound(path.to_string()));
     };
 
-    let guard = route.balancer.pick();
+    let Some(guard) = route.balancer.pick() else {
+        return Err(ProxyError::NoHealthyBackend);
+    };
 
     let headers = handle_request_headers(parts.headers, &guard.url, client_addr.ip(), scheme);
 

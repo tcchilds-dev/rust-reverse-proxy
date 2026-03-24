@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub mod two_random_choices;
 
 pub trait LoadBalancer: Send + Sync {
-    fn pick(&self) -> BackendGuard;
+    fn pick(&self) -> Option<BackendGuard>;
 }
 
 pub struct BackendGuard {

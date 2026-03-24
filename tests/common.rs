@@ -10,7 +10,9 @@ use axum::extract::Request;
 use axum::{Extension, Router, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
 use http_body_util::BodyExt;
-use proxy::config::{Config, LoggingConfig, RateLimitConfig, RouteConfig, ServerConfig, TlsConfig};
+use proxy::config::{
+    Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig, ServerConfig, TlsConfig,
+};
 use proxy::proxy::proxy_handler;
 use proxy::rate_limiter::RateLimitLayer;
 use proxy::state::{AppState, Scheme};
@@ -79,6 +81,11 @@ pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
             requests_per_second: 100,
             burst_size: 200,
         },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -141,6 +148,73 @@ pub async fn spawn_proxy_with_rate_limit(
             requests_per_second,
             burst_size,
         },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
+        },
+    };
+
+    let state = AppState::from_config(config.clone()).unwrap();
+
+    let timeout = Duration::from_secs(config.server.request_timeout_secs);
+    let max_concurrent = config.server.max_concurrent_requests;
+    let rate_limit_layer = RateLimitLayer::new(
+        config.rate_limiting.requests_per_second,
+        config.rate_limiting.burst_size,
+    );
+
+    let router = Router::new()
+        .route("/healthz", get(|| async { StatusCode::OK }))
+        .fallback(proxy_handler)
+        .with_state(state)
+        .layer(rate_limit_layer)
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    timeout,
+                ))
+                .layer(ConcurrencyLimitLayer::new(max_concurrent)),
+        )
+        .layer(Extension(Scheme("http")));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    port
+}
+
+pub async fn spawn_proxy_with_health_check(
+    routes: Vec<RouteConfig>,
+    health_check: HealthCheckConfig,
+) -> u16 {
+    let config = Config {
+        server: ServerConfig {
+            addr: "127.0.0.1:0".parse().unwrap(),
+            request_timeout_secs: 10,
+            max_concurrent_requests: 100,
+        },
+        logging: LoggingConfig {
+            level: "error".to_string(),
+        },
+        routes,
+        tls: None,
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 100,
+            burst_size: 200,
+        },
+        health_checks: health_check,
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -270,6 +344,11 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
         rate_limiting: RateLimitConfig {
             requests_per_second: 100,
             burst_size: 200,
+        },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
         },
     };
 

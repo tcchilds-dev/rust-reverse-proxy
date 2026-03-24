@@ -25,12 +25,17 @@ impl AppState {
     pub fn from_config(config: Config) -> Result<Self> {
         let client = reqwest::Client::new();
 
+        let health_check_config = config.health_checks.clone();
+
         let routes: Vec<Route> = config
             .routes
             .into_iter()
             .map(|r| Route {
                 path_prefix: r.path_prefix,
-                balancer: Arc::new(TwoRandomChoicesBalancer::new(r.backends)),
+                balancer: Arc::new(TwoRandomChoicesBalancer::new(
+                    r.backends,
+                    &health_check_config,
+                )),
             })
             .collect();
 

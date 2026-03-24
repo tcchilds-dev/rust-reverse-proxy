@@ -13,6 +13,7 @@ pub struct Config {
     pub logging: LoggingConfig,
     pub rate_limiting: RateLimitConfig,
     pub routes: Vec<RouteConfig>,
+    pub health_checks: HealthCheckConfig,
     pub tls: Option<TlsConfig>,
 }
 
@@ -45,6 +46,13 @@ pub struct TlsConfig {
 pub struct RateLimitConfig {
     pub requests_per_second: u32,
     pub burst_size: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HealthCheckConfig {
+    pub path: String,
+    pub interval_secs: u64,
+    pub timeout_secs: u64,
 }
 
 impl Config {
