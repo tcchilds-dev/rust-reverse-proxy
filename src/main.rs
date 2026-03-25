@@ -3,8 +3,10 @@ use std::{net::SocketAddr, path::Path, time::Duration};
 use anyhow::Result;
 use axum::{Extension, Router, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use proxy::{
     config::Config,
+    metrics::MetricsLayer,
     proxy::proxy_handler,
     rate_limiter::RateLimitLayer,
     state::{AppState, Scheme},
@@ -31,19 +33,28 @@ async fn main() -> Result<()> {
     let state = AppState::from_config(config.clone())?;
 
     let timeout = Duration::from_secs(config.server.request_timeout_secs);
+
     let max_concurrent_requests = config.server.max_concurrent_requests;
+
     let rate_limit_layer = RateLimitLayer::new(
         config.rate_limiting.requests_per_second,
         config.rate_limiting.burst_size,
     );
 
-    let router = Router::new()
+    let recorder_handle = PrometheusBuilder::new()
+        .set_buckets(&[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5])
+        .expect("valid buckets")
+        .install_recorder()
+        .expect("failed to install recorder");
+
+    let proxy_route = Router::new()
         .route("/healthz", get(healthz))
         .fallback(proxy_handler)
         .with_state(state)
         .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
+                .layer(MetricsLayer)
                 .layer(TraceLayer::new_for_http())
                 .layer(TimeoutLayer::with_status_code(
                     StatusCode::GATEWAY_TIMEOUT,
@@ -51,6 +62,13 @@ async fn main() -> Result<()> {
                 ))
                 .layer(ConcurrencyLimitLayer::new(max_concurrent_requests)),
         );
+
+    let metrics_route = Router::new().route(
+        "/metrics",
+        get(move || async move { recorder_handle.render() }),
+    );
+
+    let router = metrics_route.merge(proxy_route);
 
     let http_router = router.clone().layer(Extension(Scheme("http")));
     let http_listener = tokio::net::TcpListener::bind(config.server.addr).await?;

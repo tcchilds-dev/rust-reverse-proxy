@@ -1,6 +1,6 @@
 pub mod headers;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Instant};
 
 use anyhow::Result;
 use axum::{
@@ -8,6 +8,7 @@ use axum::{
     extract::{ConnectInfo, Request, State},
     response::Response,
 };
+use metrics::{counter, histogram};
 use reqwest::Url;
 
 use crate::{
@@ -58,14 +59,42 @@ pub async fn proxy_handler(
 
     tracing::debug!(%url, "forwarding request");
 
+    let upstream_timer_start = Instant::now();
+
     let result = state
         .client
         .request(method, url)
         .headers(headers)
         .body(body)
         .send()
-        .await
-        .map_err(ProxyError::UpstreamUnreachable)?;
+        .await;
+
+    if let Err(ref e) = result {
+        let kind = if e.is_timeout() {
+            "timeout"
+        } else {
+            "connection"
+        };
+        counter!("proxy_upstream_errors_total", "upstream" => guard.url.clone(), "kind" => kind)
+            .increment(1);
+    }
+
+    let result = result.map_err(ProxyError::UpstreamUnreachable)?;
+
+    let upstream_timer_elapsed = upstream_timer_start.elapsed().as_secs_f64();
+
+    histogram!("proxy_upstream_response_seconds", "upstream" => guard.url.clone())
+        .record(upstream_timer_elapsed);
+
+    let status_class = match result.status().as_u16() {
+        200..=299 => "2xx",
+        400..=499 => "4xx",
+        500..=599 => "5xx",
+        _ => "other",
+    };
+
+    counter!("proxy_upstream_requests_total", "upstream" => guard.url.clone(), "status" => status_class)
+        .increment(1);
 
     tracing::debug!(status = %result.status(), "upstream response");
 
