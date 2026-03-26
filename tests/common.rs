@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use axum::body::Body;
@@ -11,7 +13,8 @@ use axum::{Extension, Router, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
 use http_body_util::BodyExt;
 use proxy::config::{
-    Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig, ServerConfig, TlsConfig,
+    CacheConfig, Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig,
+    ServerConfig, TlsConfig,
 };
 use proxy::proxy::proxy_handler;
 use proxy::rate_limiter::RateLimitLayer;
@@ -86,6 +89,10 @@ pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
             interval_secs: 300,
             timeout_secs: 3,
         },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -153,6 +160,10 @@ pub async fn spawn_proxy_with_rate_limit(
             interval_secs: 300,
             timeout_secs: 3,
         },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -215,6 +226,10 @@ pub async fn spawn_proxy_with_health_check(
             burst_size: 200,
         },
         health_checks: health_check,
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -350,6 +365,10 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
             interval_secs: 300,
             timeout_secs: 3,
         },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -454,4 +473,41 @@ pub async fn proxy_request_https(
     let resp_headers = resp.headers().clone();
     let body = resp.text().await.unwrap();
     (status, resp_headers, body)
+}
+
+/// Spawns a backend that counts how many times it has been called and optionally sets a
+/// `Cache-Control` header on every response. Returns (port, call_count).
+pub async fn spawn_counting_backend(
+    cache_control: Option<&'static str>,
+) -> (u16, Arc<AtomicU32>) {
+    let call_count = Arc::new(AtomicU32::new(0));
+    let call_count_clone = call_count.clone();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        let router = Router::new().fallback(move |req: Request<Body>| {
+            // Don't count health check requests from the balancer.
+            let is_health_check = req.uri().path() == "/healthz";
+            let count = if !is_health_check {
+                call_count_clone.fetch_add(1, Ordering::SeqCst)
+            } else {
+                call_count_clone.load(Ordering::SeqCst)
+            };
+            async move {
+                let mut builder =
+                    axum::response::Response::builder().status(StatusCode::OK);
+                if let Some(cc) = cache_control {
+                    builder = builder.header("cache-control", cc);
+                }
+                builder
+                    .body(Body::from(format!(r#"{{"count":{count}}}"#)))
+                    .unwrap()
+            }
+        });
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    (port, call_count)
 }

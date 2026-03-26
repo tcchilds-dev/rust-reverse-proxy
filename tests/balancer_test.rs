@@ -42,8 +42,11 @@ async fn multiple_backends_all_receive_traffic() {
 
     let mut seen = HashSet::new();
 
-    for _ in 0..100 {
-        let (status, body) = proxy_get(proxy_port, "/test").await;
+    // Use a unique path per request so each one is a cache miss and actually
+    // reaches a backend (caching on the same URL would send everything through
+    // the first backend only).
+    for i in 0..100 {
+        let (status, body) = proxy_get(proxy_port, &format!("/test/{i}")).await;
         assert_eq!(status, StatusCode::OK);
         let echo = parse_echo(&body);
         seen.insert(echo["backend"].as_str().unwrap().to_string());

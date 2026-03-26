@@ -1,6 +1,6 @@
 pub mod headers;
 
-use std::{net::SocketAddr, time::Instant};
+use std::{net::SocketAddr, sync::Arc, time::Instant};
 
 use anyhow::Result;
 use axum::{
@@ -12,6 +12,7 @@ use metrics::{counter, histogram};
 use reqwest::Url;
 
 use crate::{
+    cache::{CachedResponse, extract_ttl, should_cache},
     error::ProxyError,
     proxy::headers::{handle_request_headers, handle_response_headers},
     state::{AppState, Route, Scheme},
@@ -31,6 +32,18 @@ fn build_url(backend: &str, path: &str, query: Option<&str>) -> Result<Url> {
     Ok(url)
 }
 
+fn build_response_from_cache(cached_response: &Arc<CachedResponse>) -> Response {
+    let mut response_builder = axum::response::Response::builder().status(cached_response.status);
+
+    for (name, value) in &cached_response.headers {
+        response_builder = response_builder.header(name, value);
+    }
+
+    response_builder
+        .body(axum::body::Body::from(cached_response.body.clone()))
+        .expect("Response builder should not fail with valid status and headers.")
+}
+
 #[tracing::instrument(skip(state))]
 pub async fn proxy_handler(
     State(state): State<AppState>,
@@ -38,6 +51,13 @@ pub async fn proxy_handler(
     Extension(Scheme(scheme)): Extension<Scheme>,
     request: Request,
 ) -> Result<Response, ProxyError> {
+    let is_authenticated = request.headers().contains_key("authorization");
+    let cache_key = request.uri().to_string();
+
+    if !is_authenticated && let Some(cached) = state.cache.get(&cache_key).await {
+        return Ok(handle_response_headers(build_response_from_cache(&cached)));
+    }
+
     let (parts, body) = request.into_parts();
     let path = parts.uri.path();
     let query = parts.uri.query();
@@ -63,7 +83,7 @@ pub async fn proxy_handler(
 
     let result = state
         .client
-        .request(method, url)
+        .request(method.clone(), url)
         .headers(headers)
         .body(body)
         .send()
@@ -98,17 +118,43 @@ pub async fn proxy_handler(
 
     tracing::debug!(status = %result.status(), "upstream response");
 
-    let mut response_builder = axum::response::Response::builder().status(result.status());
+    let status = result.status();
+    let should_cache_this = !is_authenticated && should_cache(&method, status, result.headers());
 
+    let mut response_builder = axum::response::Response::builder().status(status);
     for (name, value) in result.headers() {
         response_builder = response_builder.header(name, value);
     }
 
-    let body_stream = result.bytes_stream();
+    let response = if should_cache_this {
+        let headers_for_cache = result.headers().clone();
+        let ttl = extract_ttl(&headers_for_cache).unwrap_or(state.default_ttl);
+        let body_bytes = result
+            .bytes()
+            .await
+            .map_err(ProxyError::UpstreamUnreachable)?;
 
-    let response = response_builder
-        .body(axum::body::Body::from_stream(body_stream))
-        .expect("Response builder should not fail with valid status and headers.");
+        state
+            .cache
+            .insert(
+                cache_key,
+                Arc::new(CachedResponse {
+                    status,
+                    headers: headers_for_cache,
+                    body: body_bytes.clone(),
+                    ttl,
+                }),
+            )
+            .await;
+
+        response_builder
+            .body(axum::body::Body::from(body_bytes))
+            .expect("Response builder should not fail with valid status and headers.")
+    } else {
+        response_builder
+            .body(axum::body::Body::from_stream(result.bytes_stream()))
+            .expect("Response builder should not fail with valid status and headers.")
+    };
 
     Ok(handle_response_headers(response))
 }

@@ -11,10 +11,11 @@ use crate::config::validation::validate_config;
 pub struct Config {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
-    pub rate_limiting: RateLimitConfig,
     pub routes: Vec<RouteConfig>,
-    pub health_checks: HealthCheckConfig,
     pub tls: Option<TlsConfig>,
+    pub rate_limiting: RateLimitConfig,
+    pub health_checks: HealthCheckConfig,
+    pub caching: CacheConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +54,12 @@ pub struct HealthCheckConfig {
     pub path: String,
     pub interval_secs: u64,
     pub timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CacheConfig {
+    pub max_capacity: u64,
+    pub default_ttl: u64,
 }
 
 impl Config {

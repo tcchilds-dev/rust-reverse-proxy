@@ -20,6 +20,10 @@ path = "/health"
 interval_secs = 10
 timeout_secs = 3
 
+[caching]
+max_capacity = 500
+default_ttl = 60
+
 [[routes]]
 path_prefix = "/a"
 backends = [

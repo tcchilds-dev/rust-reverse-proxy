@@ -1,9 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
+use moka::future::Cache;
 
 use crate::{
     balancer::{LoadBalancer, two_random_choices::TwoRandomChoicesBalancer},
+    cache::{CachedResponse, ResponseExpiry},
     config::Config,
 };
 
@@ -19,6 +21,8 @@ pub struct Route {
 pub struct AppState {
     pub client: reqwest::Client,
     pub routes: Arc<Vec<Route>>,
+    pub cache: Cache<String, Arc<CachedResponse>>,
+    pub default_ttl: Duration,
 }
 
 impl AppState {
@@ -39,9 +43,18 @@ impl AppState {
             })
             .collect();
 
+        let cache = Cache::builder()
+            .max_capacity(config.caching.max_capacity)
+            .expire_after(ResponseExpiry {
+                default_ttl: Duration::from_secs(config.caching.default_ttl),
+            })
+            .build();
+
         Ok(Self {
             client,
             routes: Arc::new(routes),
+            cache,
+            default_ttl: Duration::from_secs(config.caching.default_ttl),
         })
     }
 }
