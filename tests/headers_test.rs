@@ -1,9 +1,14 @@
+//! Tests for header manipulation: hop-by-hop stripping, Host rewriting,
+//! and X-Forwarded-{For,Host,Proto} injection.
+
 mod common;
 
 use common::{parse_echo, proxy_request, spawn_echo_backend, spawn_proxy};
 use proxy::config::RouteConfig;
 use reqwest::{Method, StatusCode};
 
+/// Returns `(proxy_port, backend_port)` — backend port is needed to assert
+/// that the Host header was rewritten to the backend's address.
 async fn setup() -> (u16, u16) {
     let backend_port = spawn_echo_backend("backend").await;
     let proxy_port = spawn_proxy(vec![RouteConfig {
@@ -53,6 +58,8 @@ async fn injects_x_forwarded_for() {
 async fn appends_to_existing_x_forwarded_for() {
     let (proxy_port, _) = setup().await;
 
+    // Simulate a request that already passed through an upstream proxy at 10.0.0.1.
+    // Our proxy should append the immediate client IP, not replace the chain.
     let (status, _, body) = proxy_request(
         proxy_port,
         Method::GET,

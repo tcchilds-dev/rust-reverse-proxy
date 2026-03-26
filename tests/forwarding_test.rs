@@ -1,9 +1,13 @@
+//! Tests that the proxy faithfully forwards requests to backends:
+//! HTTP method, path, query string, and body are all preserved.
+
 mod common;
 
 use common::{parse_echo, proxy_get, proxy_request, spawn_echo_backend, spawn_proxy};
 use proxy::config::RouteConfig;
 use reqwest::{Method, StatusCode};
 
+/// Shared setup: one echo backend behind a catch-all (`/`) route.
 async fn setup() -> u16 {
     let port = spawn_echo_backend("backend").await;
     spawn_proxy(vec![RouteConfig {

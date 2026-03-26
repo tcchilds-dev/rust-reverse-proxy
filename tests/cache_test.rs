@@ -1,3 +1,9 @@
+//! Tests for response caching.
+//!
+//! Each test uses `spawn_counting_backend` which tracks how many non-healthcheck
+//! requests actually reach the backend. Asserting on the call count lets us
+//! distinguish cache hits (count stays the same) from misses (count increments).
+
 mod common;
 
 use std::sync::atomic::Ordering;

@@ -1,3 +1,10 @@
+//! Shared test helpers for integration tests.
+//!
+//! Each helper spins up real HTTP servers on OS-assigned ports (`127.0.0.1:0`),
+//! so tests are fully parallel and never collide on ports. The echo backend
+//! mirrors every request as JSON, making it easy to assert on what the proxy
+//! actually forwarded.
+
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -26,6 +33,8 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
+/// Spawns an HTTP server that echoes every request back as JSON containing the
+/// backend name, method, path, query, headers, and body. Returns the listening port.
 pub async fn spawn_echo_backend(name: &str) -> u16 {
     let name = name.to_string();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -68,6 +77,9 @@ pub async fn spawn_echo_backend(name: &str) -> u16 {
     port
 }
 
+/// Spawns a proxy with the production middleware stack, default config values,
+/// and a 300s health check interval (effectively disabled for short tests).
+/// Returns the listening port.
 pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
     let config = Config {
         server: ServerConfig {
@@ -310,12 +322,15 @@ pub fn parse_echo(body: &str) -> Value {
     serde_json::from_str(body).unwrap()
 }
 
+/// Holds paths to a self-signed TLS cert/key pair. The `_dir` field keeps the
+/// temp directory alive for the lifetime of this struct.
 pub struct TlsCertPair {
     pub cert_path: std::path::PathBuf,
     pub key_path: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
+/// Generates a self-signed TLS certificate valid for `localhost` and `127.0.0.1`.
 pub fn generate_test_certs() -> TlsCertPair {
     let cert =
         rcgen::generate_simple_self_signed(vec!["localhost".to_string(), "127.0.0.1".to_string()])
@@ -340,6 +355,7 @@ pub fn generate_test_certs() -> TlsCertPair {
     }
 }
 
+/// Spawns a proxy with both HTTP and HTTPS listeners. Returns `(http_port, https_port)`.
 pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (u16, u16) {
     let config = Config {
         server: ServerConfig {
@@ -433,6 +449,7 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
     (http_port, https_port)
 }
 
+/// Returns a reqwest client that accepts the self-signed test certs.
 pub fn https_client() -> reqwest::Client {
     reqwest::Client::builder()
         .danger_accept_invalid_certs(true)

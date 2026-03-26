@@ -1,3 +1,8 @@
+//! Tests for path-prefix route matching.
+//!
+//! Routes are matched first-come-first-served via `starts_with`, so config
+//! order matters when prefixes overlap (see `overlapping_prefixes_use_first_match`).
+
 mod common;
 
 use common::{parse_echo, proxy_get, spawn_echo_backend, spawn_proxy};

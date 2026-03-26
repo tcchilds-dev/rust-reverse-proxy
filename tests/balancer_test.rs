@@ -1,3 +1,8 @@
+//! Tests for the power-of-two-random-choices load balancer.
+//!
+//! These verify that traffic is distributed across backends and that the
+//! algorithm degrades gracefully to a single backend.
+
 mod common;
 
 use std::collections::HashSet;

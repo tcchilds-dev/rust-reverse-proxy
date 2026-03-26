@@ -1,3 +1,9 @@
+//! Tests for TLS termination.
+//!
+//! The proxy terminates TLS using a self-signed cert and forwards plaintext
+//! HTTP to the echo backend. Tests verify that HTTPS requests are proxied
+//! correctly and that `X-Forwarded-Proto` reflects the original scheme.
+
 mod common;
 
 use common::{
@@ -7,6 +13,7 @@ use common::{
 use proxy::config::RouteConfig;
 use reqwest::{Method, StatusCode};
 
+/// Returns `(http_port, https_port)` for a proxy with both listeners active.
 async fn setup() -> (u16, u16) {
     let backend_port = spawn_echo_backend("backend").await;
     let certs = generate_test_certs();

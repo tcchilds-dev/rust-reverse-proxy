@@ -1,3 +1,9 @@
+//! Tests for active health checking and the circuit breaker.
+//!
+//! These tests use a 1-second health check interval to keep test duration short.
+//! The circuit breaker requires 3 consecutive failures/successes to flip state,
+//! so tests sleep ~4s (3 intervals + margin) before asserting.
+
 mod common;
 
 use std::time::Duration;
@@ -6,7 +12,8 @@ use common::{proxy_get, spawn_echo_backend, spawn_proxy_with_health_check};
 use proxy::config::{HealthCheckConfig, RouteConfig};
 use reqwest::StatusCode;
 
-// Returns a port that has no server listening on it.
+/// Binds a port and immediately drops the listener, yielding a port that
+/// actively refuses connections — useful for simulating a dead backend.
 async fn dead_port() -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -70,6 +77,9 @@ async fn all_unhealthy_returns_502() {
     assert_eq!(status, StatusCode::BAD_GATEWAY);
 }
 
+/// Verifies the full circuit-breaker lifecycle: healthy → unhealthy → recovered.
+/// Starts a backend on a dead port, waits for it to be marked unhealthy,
+/// then starts a real server on that port and waits for it to be marked healthy again.
 #[tokio::test]
 async fn backend_recovers_after_health_check_passes() {
     let dead = dead_port().await;

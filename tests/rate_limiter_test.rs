@@ -1,3 +1,8 @@
+//! Tests for per-IP rate limiting (governor token bucket).
+//!
+//! Rate limit parameters are set very low (1 req/s, burst 1-5) so the
+//! limiter trips quickly without needing many requests.
+
 mod common;
 
 use common::{
@@ -7,6 +12,8 @@ use common::{
 use proxy::config::RouteConfig;
 use reqwest::{Method, StatusCode};
 
+/// With burst=5, the first 5 requests should all succeed even at 1 req/s
+/// because the token bucket starts full.
 #[tokio::test]
 async fn requests_within_burst_are_allowed() {
     let port = spawn_echo_backend("backend").await;
@@ -28,6 +35,8 @@ async fn requests_within_burst_are_allowed() {
     }
 }
 
+/// With burst=1, the very first request drains the bucket, so the second
+/// immediate request should be rejected.
 #[tokio::test]
 async fn returns_429_when_rate_limit_exceeded() {
     let port = spawn_echo_backend("backend").await;
@@ -71,6 +80,8 @@ async fn rate_limit_response_includes_retry_after_header() {
     );
 }
 
+/// After exhausting the bucket, waiting long enough for a token to refill
+/// should allow the next request through.
 #[tokio::test]
 async fn rate_limit_recovers_after_waiting() {
     let port = spawn_echo_backend("backend").await;
@@ -96,6 +107,8 @@ async fn rate_limit_recovers_after_waiting() {
     assert_eq!(status, StatusCode::OK);
 }
 
+/// Sanity check: with the default high rate limit (100 req/s, burst 200),
+/// a small burst of sequential requests should never be throttled.
 #[tokio::test]
 async fn normal_traffic_unaffected_by_high_limit() {
     let port = spawn_echo_backend("backend").await;
