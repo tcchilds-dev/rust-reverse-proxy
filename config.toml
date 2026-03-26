@@ -24,6 +24,9 @@ timeout_secs = 3
 max_capacity = 500
 default_ttl = 60
 
+# Order routes from most-specific to least-specific in order for the
+# path_prefix matching to work correctly.
+
 [[routes]]
 path_prefix = "/a"
 backends = [

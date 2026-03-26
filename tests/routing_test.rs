@@ -77,3 +77,60 @@ async fn deep_subpath_forwarded() {
     let echo = parse_echo(&body);
     assert_eq!(echo["path"], "/api/v1/users/123");
 }
+
+#[tokio::test]
+async fn overlapping_prefixes_use_first_match() {
+    let api_port = spawn_echo_backend("api-general").await;
+    let api_v2_port = spawn_echo_backend("api-v2").await;
+
+    // /api comes first, so /api/v2/foo should match /api (first-match ordering).
+    let proxy_port = spawn_proxy(vec![
+        RouteConfig {
+            path_prefix: "/api".to_string(),
+            backends: vec![format!("http://127.0.0.1:{api_port}")],
+        },
+        RouteConfig {
+            path_prefix: "/api/v2".to_string(),
+            backends: vec![format!("http://127.0.0.1:{api_v2_port}")],
+        },
+    ])
+    .await;
+
+    let (status, body) = proxy_get(proxy_port, "/api/v2/users").await;
+    assert_eq!(status, StatusCode::OK);
+    let echo = parse_echo(&body);
+    assert_eq!(
+        echo["backend"], "api-general",
+        "should match first route (/api), not the more specific (/api/v2)"
+    );
+}
+
+#[tokio::test]
+async fn more_specific_prefix_first_routes_correctly() {
+    let api_port = spawn_echo_backend("api-general").await;
+    let api_v2_port = spawn_echo_backend("api-v2").await;
+
+    // /api/v2 comes first, so /api/v2/foo should match it.
+    let proxy_port = spawn_proxy(vec![
+        RouteConfig {
+            path_prefix: "/api/v2".to_string(),
+            backends: vec![format!("http://127.0.0.1:{api_v2_port}")],
+        },
+        RouteConfig {
+            path_prefix: "/api".to_string(),
+            backends: vec![format!("http://127.0.0.1:{api_port}")],
+        },
+    ])
+    .await;
+
+    let (status, body) = proxy_get(proxy_port, "/api/v2/users").await;
+    assert_eq!(status, StatusCode::OK);
+    let echo = parse_echo(&body);
+    assert_eq!(echo["backend"], "api-v2");
+
+    // /api/v1/foo should fall through to /api.
+    let (status, body) = proxy_get(proxy_port, "/api/v1/users").await;
+    assert_eq!(status, StatusCode::OK);
+    let echo = parse_echo(&body);
+    assert_eq!(echo["backend"], "api-general");
+}

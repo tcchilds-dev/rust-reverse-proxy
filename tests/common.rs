@@ -511,3 +511,157 @@ pub async fn spawn_counting_backend(
 
     (port, call_count)
 }
+
+/// Spawns a backend that sleeps for `delay` before responding.
+pub async fn spawn_slow_backend(delay: Duration) -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        let router = Router::new().fallback(move |_req: Request<Body>| async move {
+            tokio::time::sleep(delay).await;
+            axum::Json(json!({"backend": "slow"}))
+        });
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    port
+}
+
+/// Spawns a proxy with a custom request timeout (in seconds).
+pub async fn spawn_proxy_with_timeout(routes: Vec<RouteConfig>, timeout_secs: u64) -> u16 {
+    let config = Config {
+        server: ServerConfig {
+            addr: "127.0.0.1:0".parse().unwrap(),
+            request_timeout_secs: timeout_secs,
+            max_concurrent_requests: 100,
+        },
+        logging: LoggingConfig {
+            level: "error".to_string(),
+        },
+        routes,
+        tls: None,
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 100,
+            burst_size: 200,
+        },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
+        },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
+    };
+
+    let state = AppState::from_config(config.clone()).unwrap();
+
+    let timeout = Duration::from_secs(config.server.request_timeout_secs);
+    let max_concurrent = config.server.max_concurrent_requests;
+    let rate_limit_layer = RateLimitLayer::new(
+        config.rate_limiting.requests_per_second,
+        config.rate_limiting.burst_size,
+    );
+
+    let router = Router::new()
+        .route("/healthz", get(|| async { StatusCode::OK }))
+        .fallback(proxy_handler)
+        .with_state(state)
+        .layer(rate_limit_layer)
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    timeout,
+                ))
+                .layer(ConcurrencyLimitLayer::new(max_concurrent)),
+        )
+        .layer(Extension(Scheme("http")));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    port
+}
+
+/// Spawns a proxy with a custom concurrency limit.
+pub async fn spawn_proxy_with_concurrency_limit(
+    routes: Vec<RouteConfig>,
+    max_concurrent: usize,
+) -> u16 {
+    let config = Config {
+        server: ServerConfig {
+            addr: "127.0.0.1:0".parse().unwrap(),
+            request_timeout_secs: 30,
+            max_concurrent_requests: max_concurrent,
+        },
+        logging: LoggingConfig {
+            level: "error".to_string(),
+        },
+        routes,
+        tls: None,
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 1000,
+            burst_size: 2000,
+        },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
+        },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
+    };
+
+    let state = AppState::from_config(config.clone()).unwrap();
+
+    let timeout = Duration::from_secs(config.server.request_timeout_secs);
+    let rate_limit_layer = RateLimitLayer::new(
+        config.rate_limiting.requests_per_second,
+        config.rate_limiting.burst_size,
+    );
+
+    let router = Router::new()
+        .route("/healthz", get(|| async { StatusCode::OK }))
+        .fallback(proxy_handler)
+        .with_state(state)
+        .layer(rate_limit_layer)
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    Duration::from_secs(timeout.as_secs()),
+                ))
+                .layer(ConcurrencyLimitLayer::new(max_concurrent)),
+        )
+        .layer(Extension(Scheme("http")));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    port
+}

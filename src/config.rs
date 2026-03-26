@@ -1,3 +1,5 @@
+//! TOML-based configuration with validation.
+
 pub mod validation;
 
 use std::{net::SocketAddr, path::Path};

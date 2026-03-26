@@ -112,3 +112,37 @@ async fn test_private_responses_not_cached() {
         "response with Cache-Control: private was incorrectly cached"
     );
 }
+
+#[tokio::test]
+async fn test_no_cache_responses_not_cached() {
+    let (backend_port, call_count) = common::spawn_counting_backend(Some("no-cache")).await;
+    let proxy_port = common::spawn_proxy(vec![route(backend_port)]).await;
+
+    common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Cache-Control: no-cache must prevent caching.
+    common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "response with Cache-Control: no-cache was incorrectly cached"
+    );
+}
+
+#[tokio::test]
+async fn test_max_age_zero_responses_not_cached() {
+    let (backend_port, call_count) = common::spawn_counting_backend(Some("max-age=0")).await;
+    let proxy_port = common::spawn_proxy(vec![route(backend_port)]).await;
+
+    common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Cache-Control: max-age=0 must prevent caching.
+    common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "response with Cache-Control: max-age=0 was incorrectly cached"
+    );
+}

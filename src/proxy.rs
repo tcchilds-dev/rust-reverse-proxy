@@ -1,3 +1,5 @@
+//! Core proxy handler: route matching, upstream forwarding, caching, and metrics.
+
 pub mod headers;
 
 use std::{net::SocketAddr, sync::Arc, time::Instant};
@@ -18,6 +20,10 @@ use crate::{
     state::{AppState, Route, Scheme},
 };
 
+/// Returns the first route whose `path_prefix` matches the start of `path`.
+///
+/// Routes are checked in config order, so more-specific prefixes should appear
+/// first in the configuration file (there is no longest-prefix-match).
 fn find_matching_route<'a>(path: &str, routes: &'a [Route]) -> Option<&'a Route> {
     routes.iter().find(|r| path.starts_with(&r.path_prefix))
 }
@@ -51,6 +57,8 @@ pub async fn proxy_handler(
     Extension(Scheme(scheme)): Extension<Scheme>,
     request: Request,
 ) -> Result<Response, ProxyError> {
+    // Authenticated requests always bypass the cache to avoid serving
+    // one user's personalized response to another.
     let is_authenticated = request.headers().contains_key("authorization");
     let cache_key = request.uri().to_string();
 
@@ -63,6 +71,7 @@ pub async fn proxy_handler(
     let query = parts.uri.query();
     let method = parts.method;
 
+    // Bridge axum's body type into reqwest's body type via a byte stream.
     let body = reqwest::Body::wrap_stream(body.into_data_stream());
 
     let Some(route) = find_matching_route(path, &state.routes) else {
@@ -126,6 +135,8 @@ pub async fn proxy_handler(
         response_builder = response_builder.header(name, value);
     }
 
+    // When caching, we must buffer the entire body to store it. Otherwise,
+    // stream the response directly to avoid holding large bodies in memory.
     let response = if should_cache_this {
         let headers_for_cache = result.headers().clone();
         let ttl = extract_ttl(&headers_for_cache).unwrap_or(state.default_ttl);

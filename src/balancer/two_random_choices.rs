@@ -1,3 +1,11 @@
+//! Power-of-two-random-choices load balancer with active health checking.
+//!
+//! Instead of tracking every backend's load (expensive under high concurrency),
+//! this algorithm samples two random healthy backends and picks the one with
+//! fewer active connections. This gives near-optimal load distribution with O(1)
+//! overhead per request. See "The Power of Two Choices in Randomized Load
+//! Balancing" (Mitzenmacher, 2001).
+
 use std::{
     sync::{
         Arc,
@@ -9,7 +17,7 @@ use std::{
 use rand::RngExt;
 
 use crate::{
-    balancer::{BackendGuard, LoadBalancer},
+    balancer::{ConnectionGuard, LoadBalancer},
     config::HealthCheckConfig,
 };
 
@@ -17,10 +25,16 @@ struct Backend {
     url: String,
     active_connections: Arc<AtomicUsize>,
     is_healthy: Arc<AtomicBool>,
+    /// Circuit breaker: backend is marked unhealthy after 3 consecutive failures.
     consecutive_failures: Arc<AtomicUsize>,
+    /// Circuit breaker: backend is marked healthy again after 3 consecutive successes.
     consecutive_successes: Arc<AtomicUsize>,
 }
 
+/// Load balancer using the power-of-two-random-choices algorithm.
+///
+/// Spawns a background health check task per backend on construction.
+/// These tasks run for the lifetime of the process (no cancellation handle).
 pub struct TwoRandomChoicesBalancer {
     backends: Vec<Arc<Backend>>,
 }
@@ -42,6 +56,8 @@ impl TwoRandomChoicesBalancer {
 
         let client = reqwest::Client::new();
 
+        // Spawn one health check loop per backend. Each runs independently and
+        // flips the is_healthy flag based on a simple circuit-breaker threshold.
         for backend in &backends {
             let client = client.clone();
             let backend = Arc::clone(backend);
@@ -87,14 +103,14 @@ impl TwoRandomChoicesBalancer {
         Self { backends }
     }
 
-    pub fn guard(&self, idx: usize) -> BackendGuard {
+    pub fn guard(&self, idx: usize) -> ConnectionGuard {
         let backend = &self.backends[idx];
-        BackendGuard::new(backend.url.clone(), Arc::clone(&backend.active_connections))
+        ConnectionGuard::new(backend.url.clone(), Arc::clone(&backend.active_connections))
     }
 }
 
 impl LoadBalancer for TwoRandomChoicesBalancer {
-    fn pick(&self) -> Option<BackendGuard> {
+    fn pick(&self) -> Option<ConnectionGuard> {
         let healthy: Vec<usize> = self
             .backends
             .iter()
@@ -106,6 +122,7 @@ impl LoadBalancer for TwoRandomChoicesBalancer {
         match healthy.len() {
             0 => None,
             1 => Some(self.guard(healthy[0])),
+            // With exactly 2 backends, no randomness needed — just compare.
             2 => {
                 let a = self.backends[healthy[0]]
                     .active_connections
@@ -122,6 +139,7 @@ impl LoadBalancer for TwoRandomChoicesBalancer {
             _ => {
                 let mut rng = rand::rng();
                 let n = healthy.len();
+                // Pick two distinct random indices into the healthy list.
                 let i = rng.random_range(0..n);
                 let mut j = rng.random_range(0..n - 1);
                 if i <= j {
@@ -134,10 +152,11 @@ impl LoadBalancer for TwoRandomChoicesBalancer {
                 let b = self.backends[healthy[j]]
                     .active_connections
                     .load(Ordering::Relaxed);
+                // Pick the backend with fewer active connections.
                 if a <= b {
-                    Some(self.guard(healthy[j]))
-                } else {
                     Some(self.guard(healthy[i]))
+                } else {
+                    Some(self.guard(healthy[j]))
                 }
             }
         }

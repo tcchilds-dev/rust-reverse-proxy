@@ -1,3 +1,6 @@
+//! Tower middleware that records per-request Prometheus metrics:
+//! `proxy_requests_total`, `proxy_request_duration_seconds`, and `proxy_inflight_requests`.
+
 use std::{pin::Pin, time::Instant};
 
 use axum::http::{Request, Response};
@@ -41,6 +44,10 @@ where
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         let method = req.method().to_string();
 
+        // Tower's Service::call takes &mut self, but the returned future must be
+        // 'static (it can't borrow self). The standard pattern: clone the inner
+        // service, then swap so `self` holds the clone (which needs poll_ready)
+        // and we move the ready original into the future.
         let clone = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, clone);
 

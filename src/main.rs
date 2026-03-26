@@ -1,3 +1,8 @@
+//! Entry point for the reverse proxy.
+//!
+//! Sets up the middleware stack, binds HTTP (and optionally HTTPS) listeners,
+//! and dispatches all non-health-check traffic through [`proxy_handler`].
+
 use std::{net::SocketAddr, path::Path, time::Duration};
 
 use anyhow::Result;
@@ -41,12 +46,15 @@ async fn main() -> Result<()> {
         config.rate_limiting.burst_size,
     );
 
+    // Install the global metrics recorder. Histogram buckets are tuned for
+    // typical proxy latencies (sub-millisecond to a few seconds).
     let recorder_handle = PrometheusBuilder::new()
         .set_buckets(&[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5])
         .expect("valid buckets")
         .install_recorder()
         .expect("failed to install recorder");
 
+    // Layers execute bottom-up: concurrency limit → timeout → trace → metrics → rate limit → handler.
     let proxy_route = Router::new()
         .route("/healthz", get(healthz))
         .fallback(proxy_handler)
@@ -63,6 +71,8 @@ async fn main() -> Result<()> {
                 .layer(ConcurrencyLimitLayer::new(max_concurrent_requests)),
         );
 
+    // Serve Prometheus metrics on a separate router so they bypass the proxy
+    // middleware stack (rate limiting, timeouts, etc.).
     let metrics_route = Router::new().route(
         "/metrics",
         get(move || async move { recorder_handle.render() }),
@@ -70,6 +80,8 @@ async fn main() -> Result<()> {
 
     let router = metrics_route.merge(proxy_route);
 
+    // The Scheme extension lets the proxy handler set X-Forwarded-Proto correctly
+    // depending on which listener accepted the connection.
     let http_router = router.clone().layer(Extension(Scheme("http")));
     let http_listener = tokio::net::TcpListener::bind(config.server.addr).await?;
     info!("HTTP listening on {}", config.server.addr);

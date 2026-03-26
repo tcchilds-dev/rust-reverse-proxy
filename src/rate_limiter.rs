@@ -1,3 +1,9 @@
+//! Per-IP rate limiting implemented as a Tower [`Layer`]/[`Service`].
+//!
+//! Uses the [`governor`] crate's token-bucket algorithm keyed by client IP.
+//! Requests that exceed the limit receive a `429 Too Many Requests` response
+//! with a `Retry-After` header.
+
 use std::{
     net::{IpAddr, SocketAddr},
     num::NonZeroU32,
@@ -71,6 +77,8 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        // Falls back to 0.0.0.0 if ConnectInfo is missing (e.g. in unit tests
+        // without `into_make_service_with_connect_info`).
         let ip = req
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()

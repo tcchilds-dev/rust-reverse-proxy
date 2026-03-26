@@ -1,3 +1,5 @@
+//! Shared application state threaded through Axum handlers via [`State`](axum::extract::State).
+
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
@@ -9,9 +11,12 @@ use crate::{
     config::Config,
 };
 
+/// Axum extension that tells the proxy handler which protocol the listener used,
+/// so it can set `X-Forwarded-Proto` correctly.
 #[derive(Clone)]
 pub struct Scheme(pub &'static str);
 
+/// A route maps a URL path prefix to a set of backends behind a load balancer.
 pub struct Route {
     pub path_prefix: String,
     pub balancer: Arc<dyn LoadBalancer>,
