@@ -55,11 +55,12 @@ async fn injects_x_forwarded_for() {
 }
 
 #[tokio::test]
-async fn appends_to_existing_x_forwarded_for() {
+async fn client_supplied_x_forwarded_for_is_replaced() {
     let (proxy_port, _) = setup().await;
 
-    // Simulate a request that already passed through an upstream proxy at 10.0.0.1.
-    // Our proxy should append the immediate client IP, not replace the chain.
+    // A client can supply a fake upstream IP to spoof their origin. The proxy
+    // must discard any client-supplied X-Forwarded-For and replace it with the
+    // actual direct connection IP so backends cannot be deceived.
     let (status, _, body) = proxy_request(
         proxy_port,
         Method::GET,
@@ -72,8 +73,8 @@ async fn appends_to_existing_x_forwarded_for() {
 
     let echo = parse_echo(&body);
     let xff = echo["headers"]["x-forwarded-for"].as_str().unwrap();
-    assert!(xff.starts_with("10.0.0.1, "));
-    assert!(xff.ends_with("127.0.0.1"));
+    assert_eq!(xff, "127.0.0.1", "proxy must replace spoofed X-Forwarded-For");
+    assert!(!xff.contains("10.0.0.1"), "spoofed IP must not appear in the header");
 }
 
 #[tokio::test]

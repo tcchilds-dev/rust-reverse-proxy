@@ -60,7 +60,9 @@ pub async fn proxy_handler(
     // Authenticated requests always bypass the cache to avoid serving
     // one user's personalized response to another.
     let is_authenticated = request.headers().contains_key("authorization");
-    let cache_key = request.uri().to_string();
+    // Include the method in the cache key so HEAD and GET responses are stored
+    // separately, and non-GET/HEAD requests never match a cached entry.
+    let cache_key = format!("{}:{}", request.method(), request.uri());
 
     if !is_authenticated && let Some(cached) = state.cache.get(&cache_key).await {
         return Ok(handle_response_headers(build_response_from_cache(&cached)));

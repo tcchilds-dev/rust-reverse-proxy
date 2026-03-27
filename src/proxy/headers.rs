@@ -46,21 +46,14 @@ pub fn handle_request_headers(
         headers.insert("x-forwarded-host", host);
     };
 
-    // Append the immediate client IP to the chain. When the proxy sits behind
-    // another proxy, the existing value is preserved and extended.
-    let forwarded_for = match headers.get("x-forwarded-for") {
-        Some(existing) => format!(
-            "{}, {client_ip}",
-            existing
-                .to_str()
-                .expect("x-forwarded-for should be valid ASCII")
-        ),
-        None => client_ip.to_string(),
-    };
+    // Always replace any client-supplied X-Forwarded-For with the direct client
+    // IP. Trusting and appending to a client-supplied header allows IP spoofing:
+    // a client can send "X-Forwarded-For: 1.2.3.4" to make backends believe the
+    // request originated elsewhere.
     headers.insert(
         "x-forwarded-for",
-        HeaderValue::from_str(&forwarded_for)
-            .expect("existing x-forwarded-for header should be valid UTF-8"),
+        HeaderValue::from_str(&client_ip.to_string())
+            .expect("IP address is always a valid header value"),
     );
 
     if let Ok(forwarded_proto) = HeaderValue::from_str(scheme) {

@@ -17,7 +17,7 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::{Extension, Router, routing::get};
-use axum_server::tls_rustls::RustlsConfig;
+use axum_server::tls_rustls::{RustlsConfig, from_tcp_rustls};
 use http_body_util::BodyExt;
 use proxy::config::{
     CacheConfig, Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig,
@@ -431,14 +431,16 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
         .await
         .unwrap();
 
-    let tmp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let https_port = tmp_listener.local_addr().unwrap().port();
-    drop(tmp_listener);
-
-    let https_addr: SocketAddr = format!("127.0.0.1:{https_port}").parse().unwrap();
+    // Bind at port 0 to get an OS-assigned port, then convert to a std listener
+    // so axum_server can take ownership. This avoids the TOCTOU race of
+    // binding, dropping, and re-binding that the old bind_rustls(addr) approach required.
+    let https_tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let https_port = https_tcp.local_addr().unwrap().port();
+    let https_std = https_tcp.into_std().unwrap();
 
     tokio::spawn(async move {
-        axum_server::bind_rustls(https_addr, rustls_config)
+        from_tcp_rustls(https_std, rustls_config)
+            .unwrap()
             .serve(https_router.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .unwrap();

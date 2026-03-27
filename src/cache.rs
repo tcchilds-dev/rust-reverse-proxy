@@ -69,12 +69,15 @@ fn is_cacheable_status(status: StatusCode) -> bool {
 }
 
 fn is_cacheable_by_headers(headers: &HeaderMap) -> bool {
+    // Lowercase the entire value once so all directive comparisons are
+    // case-insensitive (RFC 7234 says directives are case-insensitive).
     let cache_control = headers
         .get("cache-control")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
 
-    if let Some(age) = parse_max_age(cache_control)
+    if let Some(age) = parse_max_age(&cache_control)
         && age == Duration::from_secs(0)
     {
         return false;
@@ -102,7 +105,7 @@ fn is_cacheable_by_headers(headers: &HeaderMap) -> bool {
 pub fn parse_max_age(header_value: &str) -> Option<Duration> {
     header_value
         .split(',')
-        .map(|d| d.trim())
+        .map(|d| d.trim().to_lowercase())
         .find_map(|directive| {
             directive
                 .strip_prefix("max-age=")

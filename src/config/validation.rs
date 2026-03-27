@@ -45,7 +45,7 @@ fn validate_no_duplicate_paths(routes: &[RouteConfig]) -> bool {
 }
 
 fn validate_logger_level(level: &str) -> bool {
-    matches!(level, "debug" | "info" | "warn" | "error")
+    matches!(level.to_lowercase().as_str(), "debug" | "info" | "warn" | "error")
 }
 
 fn validate_backends_not_empty(routes: &[RouteConfig]) -> bool {
@@ -58,7 +58,11 @@ fn validate_backend_urls(routes: &[RouteConfig]) -> bool {
     routes
         .iter()
         .flat_map(|r| r.backends.iter())
-        .all(|b| Url::parse(b).is_ok())
+        .all(|b| {
+            Url::parse(b)
+                .map(|u| matches!(u.scheme(), "http" | "https"))
+                .unwrap_or(false)
+        })
 }
 
 #[cfg(test)]
