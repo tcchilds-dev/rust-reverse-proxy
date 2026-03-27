@@ -20,11 +20,20 @@ pub struct Config {
     pub caching: CacheConfig,
 }
 
+fn default_max_response_body_bytes() -> usize {
+    100 * 1024 * 1024 // 100 MiB
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub addr: SocketAddr,
     pub request_timeout_secs: u64,
     pub max_concurrent_requests: usize,
+    /// Maximum bytes the proxy will buffer when caching a response body.
+    /// Non-cached (streaming) responses are not limited.
+    /// Defaults to 100 MiB if omitted from config.
+    #[serde(default = "default_max_response_body_bytes")]
+    pub max_response_body_bytes: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]

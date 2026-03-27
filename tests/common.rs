@@ -87,6 +87,7 @@ pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
             addr: "127.0.0.1:0".parse().unwrap(),
             request_timeout_secs: 10,
             max_concurrent_requests: 100,
+            max_response_body_bytes: 100 * 1024 * 1024,
         },
         logging: LoggingConfig {
             level: "error".to_string(),
@@ -159,6 +160,7 @@ pub async fn spawn_proxy_with_rate_limit(
             addr: "127.0.0.1:0".parse().unwrap(),
             request_timeout_secs: 10,
             max_concurrent_requests: 100,
+            max_response_body_bytes: 100 * 1024 * 1024,
         },
         logging: LoggingConfig {
             level: "error".to_string(),
@@ -230,6 +232,7 @@ pub async fn spawn_proxy_with_health_check(
             addr: "127.0.0.1:0".parse().unwrap(),
             request_timeout_secs: 10,
             max_concurrent_requests: 100,
+            max_response_body_bytes: 100 * 1024 * 1024,
         },
         logging: LoggingConfig {
             level: "error".to_string(),
@@ -366,6 +369,7 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
             addr: "127.0.0.1:0".parse().unwrap(),
             request_timeout_secs: 10,
             max_concurrent_requests: 100,
+            max_response_body_bytes: 100 * 1024 * 1024,
         },
         logging: LoggingConfig {
             level: "error".to_string(),
@@ -559,6 +563,7 @@ pub async fn spawn_proxy_with_timeout(routes: Vec<RouteConfig>, timeout_secs: u6
             addr: "127.0.0.1:0".parse().unwrap(),
             request_timeout_secs: timeout_secs,
             max_concurrent_requests: 100,
+            max_response_body_bytes: 100 * 1024 * 1024,
         },
         logging: LoggingConfig {
             level: "error".to_string(),
@@ -631,6 +636,7 @@ pub async fn spawn_proxy_with_concurrency_limit(
             addr: "127.0.0.1:0".parse().unwrap(),
             request_timeout_secs: 30,
             max_concurrent_requests: max_concurrent,
+            max_response_body_bytes: 100 * 1024 * 1024,
         },
         logging: LoggingConfig {
             level: "error".to_string(),
@@ -673,6 +679,79 @@ pub async fn spawn_proxy_with_concurrency_limit(
                     Duration::from_secs(timeout.as_secs()),
                 ))
                 .layer(ConcurrencyLimitLayer::new(max_concurrent)),
+        )
+        .layer(Extension(Scheme("http")));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    port
+}
+
+/// Spawns a proxy with a custom cached-response body size limit (in bytes).
+pub async fn spawn_proxy_with_body_limits(
+    routes: Vec<RouteConfig>,
+    max_response_body_bytes: usize,
+) -> u16 {
+    let config = Config {
+        server: ServerConfig {
+            addr: "127.0.0.1:0".parse().unwrap(),
+            request_timeout_secs: 10,
+            max_concurrent_requests: 100,
+            max_response_body_bytes,
+        },
+        logging: LoggingConfig {
+            level: "error".to_string(),
+        },
+        routes,
+        tls: None,
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 100,
+            burst_size: 200,
+        },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
+        },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
+    };
+
+    let state = AppState::from_config(config.clone()).unwrap();
+
+    let timeout = Duration::from_secs(config.server.request_timeout_secs);
+    let max_concurrent = config.server.max_concurrent_requests;
+    let rate_limit_layer = RateLimitLayer::new(
+        config.rate_limiting.requests_per_second,
+        config.rate_limiting.burst_size,
+    );
+
+    let router = Router::new()
+        .route("/healthz", get(|| async { StatusCode::OK }))
+        .fallback(proxy_handler)
+        .with_state(state)
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(AccessLogLayer)
+                .layer(rate_limit_layer)
+                .layer(ConcurrencyLimitLayer::new(max_concurrent))
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    timeout,
+                )),
         )
         .layer(Extension(Scheme("http")));
 

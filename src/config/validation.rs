@@ -80,6 +80,7 @@ mod tests {
                 addr: "127.0.0.1:8080".parse().unwrap(),
                 request_timeout_secs: 10,
                 max_concurrent_requests: 100,
+                max_response_body_bytes: 100 * 1024 * 1024,
             },
             logging: LoggingConfig {
                 level: "info".to_string(),

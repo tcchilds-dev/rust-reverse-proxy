@@ -28,6 +28,7 @@ pub struct AppState {
     pub routes: Arc<Vec<Route>>,
     pub cache: Cache<String, Arc<CachedResponse>>,
     pub default_ttl: Duration,
+    pub max_response_body_bytes: usize,
 }
 
 impl AppState {
@@ -60,6 +61,7 @@ impl AppState {
             routes: Arc::new(routes),
             cache,
             default_ttl: Duration::from_secs(config.caching.default_ttl),
+            max_response_body_bytes: config.server.max_response_body_bytes,
         })
     }
 }

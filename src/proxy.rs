@@ -164,6 +164,11 @@ pub async fn proxy_handler(
             .await
             .map_err(ProxyError::UpstreamUnreachable)?;
 
+        // The buffered body may exceed the limit even without a Content-Length header.
+        if body_bytes.len() > state.max_response_body_bytes {
+            return Err(ProxyError::ResponseBodyTooLarge);
+        }
+
         state
             .cache
             .insert(
