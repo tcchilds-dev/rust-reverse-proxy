@@ -7,6 +7,13 @@ use axum::http::{Request, Response};
 use metrics::{counter, gauge, histogram};
 use tower::{Layer, Service};
 
+/// Response extension set by [`proxy_handler`](crate::proxy::proxy_handler) to record
+/// which route prefix matched the request. `MetricsLayer` reads this to add a `route`
+/// label; requests that never reach the handler (rejected early or served from cache)
+/// use `"unknown"`.
+#[derive(Clone)]
+pub struct RouteInfo(pub String);
+
 #[derive(Clone)]
 pub struct MetricsLayer;
 
@@ -62,20 +69,34 @@ where
 
             let elapsed = start.elapsed().as_secs_f64();
 
-            let status = match &result {
-                Ok(res) => res.status().as_u16().to_string(),
-                Err(_) => "error".to_string(),
+            let (status, route) = match &result {
+                Ok(res) => {
+                    let status = res.status().as_u16().to_string();
+                    let route = res
+                        .extensions()
+                        .get::<RouteInfo>()
+                        .map(|r| r.0.clone())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    (status, route)
+                }
+                Err(_) => ("error".to_string(), "unknown".to_string()),
             };
 
             counter!(
                 "proxy_requests_total",
                     "method" => method.clone(),
                     "status" => status.clone(),
+                    "route" => route.clone(),
             )
             .increment(1);
 
-            histogram!("proxy_request_duration_seconds", "method" => method, "status" => status)
-                .record(elapsed);
+            histogram!(
+                "proxy_request_duration_seconds",
+                "method" => method,
+                "status" => status,
+                "route" => route,
+            )
+            .record(elapsed);
 
             result
         })

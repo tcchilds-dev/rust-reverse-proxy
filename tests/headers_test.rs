@@ -117,3 +117,53 @@ async fn injects_x_forwarded_host() {
         "x-forwarded-host should contain original host, got: {xfh}"
     );
 }
+
+#[tokio::test]
+async fn generates_request_id_when_absent() {
+    let (proxy_port, _) = setup().await;
+
+    let (status, resp_headers, body) =
+        proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The proxy must generate an X-Request-ID and echo it back to the client.
+    let resp_id = resp_headers
+        .get("x-request-id")
+        .expect("proxy must add X-Request-ID to response")
+        .to_str()
+        .unwrap();
+    assert!(!resp_id.is_empty());
+
+    // The same ID must be forwarded to the upstream backend.
+    let echo = parse_echo(&body);
+    let upstream_id = echo["headers"]["x-request-id"].as_str().unwrap();
+    assert_eq!(resp_id, upstream_id, "response and upstream X-Request-ID must match");
+}
+
+#[tokio::test]
+async fn propagates_existing_request_id() {
+    let (proxy_port, _) = setup().await;
+
+    let client_id = "test-correlation-id-abc123";
+    let (status, resp_headers, body) = proxy_request(
+        proxy_port,
+        Method::GET,
+        "/test",
+        vec![("x-request-id", client_id)],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The client-supplied ID must be echoed back in the response.
+    let resp_id = resp_headers
+        .get("x-request-id")
+        .expect("proxy must echo X-Request-ID in response")
+        .to_str()
+        .unwrap();
+    assert_eq!(resp_id, client_id);
+
+    // The same ID must be forwarded to the upstream backend.
+    let echo = parse_echo(&body);
+    assert_eq!(echo["headers"]["x-request-id"].as_str().unwrap(), client_id);
+}

@@ -15,11 +15,13 @@ use axum::{
 /// - Strips hop-by-hop headers that are meaningful only for a single connection.
 /// - Sets `Host` to the backend address.
 /// - Injects/appends `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto`.
+/// - Sets `X-Request-ID` to `request_id` (either propagated from the client or freshly generated).
 pub fn handle_request_headers(
     mut headers: HeaderMap,
     backend: &str,
     client_ip: IpAddr,
     scheme: &str,
+    request_id: &str,
 ) -> HeaderMap {
     let forwarded_host = headers.get("host").cloned();
 
@@ -59,6 +61,11 @@ pub fn handle_request_headers(
     if let Ok(forwarded_proto) = HeaderValue::from_str(scheme) {
         headers.insert("x-forwarded-proto", forwarded_proto);
     }
+
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_str(request_id).expect("request ID is always a valid header value"),
+    );
 
     headers
 }

@@ -34,9 +34,18 @@ struct Backend {
 /// Load balancer using the power-of-two-random-choices algorithm.
 ///
 /// Spawns a background health check task per backend on construction.
-/// These tasks run for the lifetime of the process (no cancellation handle).
+/// Tasks are aborted when the balancer is dropped.
 pub struct TwoRandomChoicesBalancer {
     backends: Vec<Arc<Backend>>,
+    health_check_tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for TwoRandomChoicesBalancer {
+    fn drop(&mut self) {
+        for handle in &self.health_check_tasks {
+            handle.abort();
+        }
+    }
 }
 
 impl TwoRandomChoicesBalancer {
@@ -58,49 +67,56 @@ impl TwoRandomChoicesBalancer {
 
         // Spawn one health check loop per backend. Each runs independently and
         // flips the is_healthy flag based on a simple circuit-breaker threshold.
-        for backend in &backends {
-            let client = client.clone();
-            let backend = Arc::clone(backend);
-            let interval = Duration::from_secs(health_check_config.interval_secs);
-            let timeout = Duration::from_secs(health_check_config.timeout_secs);
-            let path = health_check_config.path.clone();
+        let health_check_tasks = backends
+            .iter()
+            .map(|backend| {
+                let client = client.clone();
+                let backend = Arc::clone(backend);
+                let interval = Duration::from_secs(health_check_config.interval_secs);
+                let timeout = Duration::from_secs(health_check_config.timeout_secs);
+                let path = health_check_config.path.clone();
 
-            tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(interval);
+                tokio::spawn(async move {
+                    let mut ticker = tokio::time::interval(interval);
 
-                loop {
-                    ticker.tick().await;
-                    let url = format!("{}{}", backend.url, path);
+                    loop {
+                        ticker.tick().await;
+                        let url = format!("{}{}", backend.url, path);
 
-                    let healthy = client
-                        .get(&url)
-                        .timeout(timeout)
-                        .send()
-                        .await
-                        .map(|r| r.status().is_success())
-                        .unwrap_or(false);
+                        let healthy = client
+                            .get(&url)
+                            .timeout(timeout)
+                            .send()
+                            .await
+                            .map(|r| r.status().is_success())
+                            .unwrap_or(false);
 
-                    if healthy {
-                        backend.consecutive_failures.store(0, Ordering::Relaxed);
-                        let success = backend
-                            .consecutive_successes
-                            .fetch_add(1, Ordering::Relaxed)
-                            + 1;
-                        if success >= 3 {
-                            backend.is_healthy.store(true, Ordering::Relaxed);
-                        }
-                    } else {
-                        backend.consecutive_successes.store(0, Ordering::Relaxed);
-                        let f = backend.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
-                        if f >= 3 {
-                            backend.is_healthy.store(false, Ordering::Relaxed);
+                        if healthy {
+                            backend.consecutive_failures.store(0, Ordering::Relaxed);
+                            let success = backend
+                                .consecutive_successes
+                                .fetch_add(1, Ordering::Relaxed)
+                                + 1;
+                            if success >= 3 {
+                                backend.is_healthy.store(true, Ordering::Relaxed);
+                            }
+                        } else {
+                            backend.consecutive_successes.store(0, Ordering::Relaxed);
+                            let f =
+                                backend.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
+                            if f >= 3 {
+                                backend.is_healthy.store(false, Ordering::Relaxed);
+                            }
                         }
                     }
-                }
-            });
-        }
+                })
+            })
+            .collect();
 
-        Self { backends }
+        Self {
+            backends,
+            health_check_tasks,
+        }
     }
 
     pub fn guard(&self, idx: usize) -> ConnectionGuard {

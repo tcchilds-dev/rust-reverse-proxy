@@ -8,14 +8,17 @@ use anyhow::Result;
 use axum::{
     Extension,
     extract::{ConnectInfo, Request, State},
+    http::HeaderValue,
     response::Response,
 };
 use metrics::{counter, histogram};
 use reqwest::Url;
 
 use crate::{
+    access_log::UpstreamInfo,
     cache::{CachedResponse, extract_ttl, should_cache},
     error::ProxyError,
+    metrics::RouteInfo,
     proxy::headers::{handle_request_headers, handle_response_headers},
     state::{AppState, Route, Scheme},
 };
@@ -64,8 +67,22 @@ pub async fn proxy_handler(
     // separately, and non-GET/HEAD requests never match a cached entry.
     let cache_key = format!("{}:{}", request.method(), request.uri());
 
+    // If the client supplied X-Request-ID, propagate it for end-to-end correlation.
+    // Otherwise generate a fresh 128-bit random hex ID so every request is traceable.
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{:032x}", rand::random::<u128>()));
+
     if !is_authenticated && let Some(cached) = state.cache.get(&cache_key).await {
-        return Ok(handle_response_headers(build_response_from_cache(&cached)));
+        let mut response = handle_response_headers(build_response_from_cache(&cached));
+        response.headers_mut().insert(
+            "x-request-id",
+            HeaderValue::from_str(&request_id).expect("request ID is always a valid header value"),
+        );
+        return Ok(response);
     }
 
     let (parts, body) = request.into_parts();
@@ -84,7 +101,7 @@ pub async fn proxy_handler(
         return Err(ProxyError::NoHealthyBackend);
     };
 
-    let headers = handle_request_headers(parts.headers, &guard.url, client_addr.ip(), scheme);
+    let headers = handle_request_headers(parts.headers, &guard.url, client_addr.ip(), scheme, &request_id);
 
     let url = build_url(&guard.url, path, query).expect("Valid path and backend should not fail.");
 
@@ -169,5 +186,12 @@ pub async fn proxy_handler(
             .expect("Response builder should not fail with valid status and headers.")
     };
 
-    Ok(handle_response_headers(response))
+    let mut response = handle_response_headers(response);
+    response.extensions_mut().insert(UpstreamInfo(guard.url.clone()));
+    response.extensions_mut().insert(RouteInfo(route.path_prefix.clone()));
+    response.headers_mut().insert(
+        "x-request-id",
+        HeaderValue::from_str(&request_id).expect("request ID is always a valid header value"),
+    );
+    Ok(response)
 }

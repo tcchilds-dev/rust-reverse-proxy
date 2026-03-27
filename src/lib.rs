@@ -1,3 +1,4 @@
+pub mod access_log;
 pub mod balancer;
 pub mod cache;
 pub mod config;

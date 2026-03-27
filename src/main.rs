@@ -10,6 +10,7 @@ use axum::{Extension, Router, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use proxy::{
+    access_log::AccessLogLayer,
     config::Config,
     metrics::MetricsLayer,
     proxy::proxy_handler,
@@ -54,21 +55,21 @@ async fn main() -> Result<()> {
         .install_recorder()
         .expect("failed to install recorder");
 
-    // Layers execute bottom-up: concurrency limit → timeout → trace → metrics → rate limit → handler.
     let proxy_route = Router::new()
         .route("/healthz", get(healthz))
         .fallback(proxy_handler)
         .with_state(state)
-        .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
-                .layer(MetricsLayer)
                 .layer(TraceLayer::new_for_http())
+                .layer(AccessLogLayer)
+                .layer(rate_limit_layer)
+                .layer(ConcurrencyLimitLayer::new(max_concurrent_requests))
                 .layer(TimeoutLayer::with_status_code(
                     StatusCode::GATEWAY_TIMEOUT,
                     timeout,
                 ))
-                .layer(ConcurrencyLimitLayer::new(max_concurrent_requests)),
+                .layer(MetricsLayer),
         );
 
     // Serve Prometheus metrics on a separate router so they bypass the proxy

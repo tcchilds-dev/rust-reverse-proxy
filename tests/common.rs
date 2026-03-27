@@ -23,6 +23,7 @@ use proxy::config::{
     CacheConfig, Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig,
     ServerConfig, TlsConfig,
 };
+use proxy::access_log::AccessLogLayer;
 use proxy::proxy::proxy_handler;
 use proxy::rate_limiter::RateLimitLayer;
 use proxy::state::{AppState, Scheme};
@@ -120,6 +121,7 @@ pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
         .route("/healthz", get(|| async { StatusCode::OK }))
         .fallback(proxy_handler)
         .with_state(state)
+        .layer(AccessLogLayer)
         .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
@@ -191,6 +193,7 @@ pub async fn spawn_proxy_with_rate_limit(
         .route("/healthz", get(|| async { StatusCode::OK }))
         .fallback(proxy_handler)
         .with_state(state)
+        .layer(AccessLogLayer)
         .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
@@ -257,6 +260,7 @@ pub async fn spawn_proxy_with_health_check(
         .route("/healthz", get(|| async { StatusCode::OK }))
         .fallback(proxy_handler)
         .with_state(state)
+        .layer(AccessLogLayer)
         .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
@@ -400,6 +404,7 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
         .route("/healthz", get(|| async { StatusCode::OK }))
         .fallback(proxy_handler)
         .with_state(state)
+        .layer(AccessLogLayer)
         .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
@@ -588,6 +593,7 @@ pub async fn spawn_proxy_with_timeout(routes: Vec<RouteConfig>, timeout_secs: u6
         .route("/healthz", get(|| async { StatusCode::OK }))
         .fallback(proxy_handler)
         .with_state(state)
+        .layer(AccessLogLayer)
         .layer(rate_limit_layer)
         .layer(
             ServiceBuilder::new()
