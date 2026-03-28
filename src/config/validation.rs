@@ -100,6 +100,8 @@ mod tests {
                 max_capacity: 100,
                 default_ttl: 60,
             },
+            sensitive_headers: Default::default(),
+            connection_pool: Default::default(),
         }
     }
 

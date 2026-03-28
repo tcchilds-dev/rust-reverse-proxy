@@ -78,6 +78,9 @@ pub async fn proxy_handler(
 
     if !is_authenticated && let Some(cached) = state.cache.get(&cache_key).await {
         let mut response = handle_response_headers(build_response_from_cache(&cached));
+        for name in &state.strip_response_headers {
+            response.headers_mut().remove(name);
+        }
         response.headers_mut().insert(
             "x-request-id",
             HeaderValue::from_str(&request_id).expect("request ID is always a valid header value"),
@@ -85,7 +88,7 @@ pub async fn proxy_handler(
         return Ok(response);
     }
 
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
     let path = parts.uri.path();
     let query = parts.uri.query();
     let method = parts.method;
@@ -100,6 +103,12 @@ pub async fn proxy_handler(
     let Some(guard) = route.balancer.pick() else {
         return Err(ProxyError::NoHealthyBackend);
     };
+
+    // Strip configured sensitive headers before forwarding so clients cannot
+    // inject headers that backends might trust (e.g. x-real-ip, x-internal-auth).
+    for name in &state.strip_request_headers {
+        parts.headers.remove(name);
+    }
 
     let headers = handle_request_headers(parts.headers, &guard.url, client_addr.ip(), scheme, &request_id);
 
@@ -192,6 +201,9 @@ pub async fn proxy_handler(
     };
 
     let mut response = handle_response_headers(response);
+    for name in &state.strip_response_headers {
+        response.headers_mut().remove(name);
+    }
     response.extensions_mut().insert(UpstreamInfo(guard.url.clone()));
     response.extensions_mut().insert(RouteInfo(route.path_prefix.clone()));
     response.headers_mut().insert(

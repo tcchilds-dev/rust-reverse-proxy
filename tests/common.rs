@@ -21,7 +21,7 @@ use axum_server::tls_rustls::{RustlsConfig, from_tcp_rustls};
 use http_body_util::BodyExt;
 use proxy::config::{
     CacheConfig, Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig,
-    ServerConfig, TlsConfig,
+    SensitiveHeadersConfig, ServerConfig, TlsConfig,
 };
 use proxy::access_log::AccessLogLayer;
 use proxy::proxy::proxy_handler;
@@ -107,6 +107,8 @@ pub async fn spawn_proxy(routes: Vec<RouteConfig>) -> u16 {
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -180,6 +182,8 @@ pub async fn spawn_proxy_with_rate_limit(
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -248,6 +252,8 @@ pub async fn spawn_proxy_with_health_check(
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -393,6 +399,8 @@ pub async fn spawn_tls_proxy(routes: Vec<RouteConfig>, certs: &TlsCertPair) -> (
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -583,6 +591,8 @@ pub async fn spawn_proxy_with_timeout(routes: Vec<RouteConfig>, timeout_secs: u6
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -656,6 +666,8 @@ pub async fn spawn_proxy_with_concurrency_limit(
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();
@@ -697,6 +709,100 @@ pub async fn spawn_proxy_with_concurrency_limit(
     port
 }
 
+/// Spawns a proxy with a custom sensitive headers config (stripping lists).
+pub async fn spawn_proxy_with_sensitive_headers(
+    routes: Vec<RouteConfig>,
+    sensitive_headers: SensitiveHeadersConfig,
+) -> u16 {
+    let config = Config {
+        server: ServerConfig {
+            addr: "127.0.0.1:0".parse().unwrap(),
+            request_timeout_secs: 10,
+            max_concurrent_requests: 100,
+            max_response_body_bytes: 100 * 1024 * 1024,
+        },
+        logging: LoggingConfig {
+            level: "error".to_string(),
+        },
+        routes,
+        tls: None,
+        rate_limiting: RateLimitConfig {
+            requests_per_second: 100,
+            burst_size: 200,
+        },
+        health_checks: HealthCheckConfig {
+            path: "/healthz".to_string(),
+            interval_secs: 300,
+            timeout_secs: 3,
+        },
+        caching: CacheConfig {
+            max_capacity: 100,
+            default_ttl: 60,
+        },
+        sensitive_headers,
+        connection_pool: Default::default(),
+    };
+
+    let state = AppState::from_config(config.clone()).unwrap();
+
+    let timeout = Duration::from_secs(config.server.request_timeout_secs);
+    let max_concurrent = config.server.max_concurrent_requests;
+    let rate_limit_layer = RateLimitLayer::new(
+        config.rate_limiting.requests_per_second,
+        config.rate_limiting.burst_size,
+    );
+
+    let router = Router::new()
+        .route("/healthz", get(|| async { StatusCode::OK }))
+        .fallback(proxy_handler)
+        .with_state(state)
+        .layer(AccessLogLayer)
+        .layer(rate_limit_layer)
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    timeout,
+                ))
+                .layer(ConcurrencyLimitLayer::new(max_concurrent)),
+        )
+        .layer(Extension(Scheme("http")));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    port
+}
+
+/// Spawns a backend that always responds 200 OK with one extra response header set.
+pub async fn spawn_backend_with_response_header(name: &'static str, value: &'static str) -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        let router = Router::new().fallback(move || async move {
+            axum::response::Response::builder()
+                .status(StatusCode::OK)
+                .header(name, value)
+                .body(Body::empty())
+                .unwrap()
+        });
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    port
+}
+
 /// Spawns a proxy with a custom cached-response body size limit (in bytes).
 pub async fn spawn_proxy_with_body_limits(
     routes: Vec<RouteConfig>,
@@ -727,6 +833,8 @@ pub async fn spawn_proxy_with_body_limits(
             max_capacity: 100,
             default_ttl: 60,
         },
+        sensitive_headers: Default::default(),
+        connection_pool: Default::default(),
     };
 
     let state = AppState::from_config(config.clone()).unwrap();

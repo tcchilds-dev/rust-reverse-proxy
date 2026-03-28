@@ -1,32 +1,94 @@
 [server]
+# Address and port for the HTTP listener.
 addr = "0.0.0.0:8080"
-request_timeout_secs = 30
-max_concurrent_requests = 1000
-# max_response_body_bytes = default: 100 * 1024 * 1024 (100MiB)
 
+# Maximum time (in seconds) to wait for a complete request/response cycle.
+# Requests that exceed this are terminated with 504 Gateway Timeout.
+request_timeout_secs = 30
+
+# Maximum number of requests being processed at the same time.
+# Requests that arrive when this limit is reached are queued by Tower.
+max_concurrent_requests = 1000
+
+# Maximum bytes the proxy will buffer when caching a response body.
+# Responses larger than this are returned to the client without being cached.
+# Non-cached (streaming) responses are not subject to this limit.
+# Default: 104857600 (100 MiB).
+# max_response_body_bytes = 104857600
+
+# ---------------------------------------------------------------------------
+# TLS — comment this section out to run HTTP-only.
+# ---------------------------------------------------------------------------
 [tls]
 cert_path = "/etc/proxy/cert.pem"
-key_path = "/etc/proxy/key.pem"
+key_path  = "/etc/proxy/key.pem"
+# Address and port for the HTTPS listener (runs alongside HTTP).
 addr = "0.0.0.0:8443"
 
 [logging]
+# One of: debug, info, warn, error.
 level = "debug"
 
 [rate_limiting]
+# Steady-state request allowance per second per client IP (token bucket).
 requests_per_second = 100
+
+# Maximum burst of requests a client can send before being throttled.
+# Should be >= requests_per_second to allow short traffic spikes.
 burst_size = 200
 
 [health_checks]
+# HTTP path the proxy polls on each backend to determine whether it is healthy.
 path = "/health"
+
+# How often (in seconds) to probe each backend.
 interval_secs = 10
+
+# How long (in seconds) to wait for a health-check response before marking the
+# backend unhealthy for this round.
 timeout_secs = 3
 
 [caching]
+# Maximum number of distinct cache entries to hold in memory.
+# Older entries are evicted once this limit is reached.
 max_capacity = 500
+
+# Default cache TTL (in seconds) used when the upstream response does not
+# include a Cache-Control: max-age directive.
 default_ttl = 60
 
-# Order routes from most-specific to least-specific in order for the
-# path_prefix matching to work correctly.
+# ---------------------------------------------------------------------------
+# Connection pool — controls how upstream TCP connections are reused.
+# Omitting this section uses the built-in defaults shown below.
+# ---------------------------------------------------------------------------
+[connection_pool]
+# Maximum number of idle connections to keep open per backend host.
+# Lowering this reduces file-descriptor usage; raising it helps throughput
+# under bursty traffic by avoiding repeated TCP handshakes.
+# Default: 32.
+max_idle_per_host = 32
+
+# Seconds an idle connection is kept before being closed.
+# Set to 0 to disable the idle timeout (connections stay open until the
+# backend closes them).
+# Default: 90.
+idle_timeout_secs = 90
+
+# ---------------------------------------------------------------------------
+# Sensitive headers — optional, defaults to empty lists (nothing stripped).
+# ---------------------------------------------------------------------------
+[sensitive_headers]
+# Headers to remove from client requests before forwarding upstream.
+# Use this to prevent clients from forging headers your backends trust.
+# strip_from_request = ["x-internal-auth", "x-real-ip"]
+
+# Headers to remove from upstream responses before returning to clients.
+# Use this to avoid leaking server implementation details.
+# strip_from_response = ["server", "x-powered-by"]
+
+# ---------------------------------------------------------------------------
+# Routes — matched top-to-bottom; put more-specific prefixes first.
+# ---------------------------------------------------------------------------
 
 [[routes]]
 path_prefix = "/a"
