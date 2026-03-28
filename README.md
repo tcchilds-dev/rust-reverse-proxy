@@ -141,3 +141,39 @@ cargo test -- --nocapture --test-threads=1  # with log output
 | `axum-server`                             | TLS listener via Rustls                                          |
 | `metrics` + `metrics-exporter-prometheus` | Prometheus metrics                                               |
 | `tokio`                                   | Async runtime                                                    |
+
+## AI Usage Report
+
+Intellectual honesty is important to me. Below I'll detail AI involvement for each feature.
+
+**Entirely** written by me. No `Claude Code` usage at all:
+
+- Main server set up
+- Config set up and conversion
+- `thiserror` ProxyError implementation
+- Proxy handler
+- Load balancer implementation
+- RAII connection guard
+- `axum` State set up
+- `tower` middleware layers for timeout, concurrency limit, `governor` rate limiting, and tracing
+- HTTP + HTTPS listeners (TLS termination)
+- Active health checks
+- `prometheus + grafana` Metrics
+- `moka` Response Caching
+
+Written by `Claude Code`, checked and understood **thoroughly** by me:
+
+- Comments (some edits made by myself)
+- README (I made some corrections, as well as this AI report section)
+- After review changes:
+  - bug fixes (some implemented by myself)
+  - structured request logging
+  - request ID propagation
+  - response body size limit for caching
+  - sensitive header stripping configuration
+  - connection pooling configuration
+
+Written by `Claude Code`, checked and understood **moderately** by me:
+
+- Simple test backends for dev purposes (had to make an edit)
+- Integration tests (I made sure to understand the structure of the tests)
