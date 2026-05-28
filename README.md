@@ -15,6 +15,46 @@ A reverse proxy written in Rust using [Axum](https://github.com/tokio-rs/axum) a
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    Client([Client])
+    Prom([Prometheus])
+
+    subgraph Proxy["Reverse Proxy"]
+        direction TB
+        subgraph MW["Tower Middleware Stack"]
+            direction TB
+            Trace[TraceLayer]
+            Access[AccessLogLayer]
+            Rate[RateLimitLayer]
+            Conc[ConcurrencyLimitLayer]
+            Time[TimeoutLayer]
+            Met[MetricsLayer]
+            Trace --> Access --> Rate --> Conc --> Time --> Met
+        end
+        Handler["proxy_handler()"]
+        Cache[("Response Cache<br/>(Moka)")]
+        LB["Load Balancer<br/>P2C + health checks"]
+        Metrics["/metrics endpoint"]
+
+        Met --> Handler
+        Handler <-->|GET/HEAD| Cache
+        Handler --> LB
+    end
+
+    subgraph Upstream["Upstream Backends"]
+        B1[Backend 1]
+        B2[Backend 2]
+        BN[Backend N]
+    end
+
+    Client -->|HTTP/HTTPS| Trace
+    LB --> B1
+    LB --> B2
+    LB --> BN
+    Prom -.->|scrape| Metrics
+```
+
 Requests pass through a Tower middleware stack before reaching the proxy handler:
 
 ```
