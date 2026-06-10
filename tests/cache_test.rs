@@ -55,6 +55,25 @@ async fn test_authenticated_requests_not_cached() {
 }
 
 #[tokio::test]
+async fn test_cookie_requests_not_cached() {
+    let (backend_port, call_count) = common::spawn_counting_backend(None).await;
+    let proxy_port = common::spawn_proxy(vec![route(backend_port)]).await;
+
+    let cookie = vec![("cookie", "session=abc123")];
+
+    common::proxy_request(proxy_port, Method::GET, "/test", cookie.clone(), None).await;
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Requests carrying session cookies must bypass the cache.
+    common::proxy_request(proxy_port, Method::GET, "/test", cookie, None).await;
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "cookie-bearing request was incorrectly served from cache"
+    );
+}
+
+#[tokio::test]
 async fn test_post_responses_not_cached() {
     let (backend_port, call_count) = common::spawn_counting_backend(None).await;
     let proxy_port = common::spawn_proxy(vec![route(backend_port)]).await;
