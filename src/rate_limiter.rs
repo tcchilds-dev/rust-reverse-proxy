@@ -32,13 +32,25 @@ pub struct RateLimitLayer {
 }
 
 impl RateLimitLayer {
+    /// Must be called from within a Tokio runtime: spawns a background task
+    /// that periodically evicts idle per-IP entries so the keyed state store
+    /// does not grow unboundedly with the number of unique client IPs.
     pub fn new(per_second: u32, burst_size: u32) -> Self {
         let quota = Quota::per_second(NonZeroU32::new(per_second).expect("rate must be non-zero"))
             .allow_burst(NonZeroU32::new(burst_size).expect("burst must be non-zero"));
 
-        Self {
-            limiter: Arc::new(RateLimiter::keyed(quota)),
-        }
+        let limiter = Arc::new(RateLimiter::keyed(quota));
+
+        let housekeeping = Arc::clone(&limiter);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                ticker.tick().await;
+                housekeeping.retain_recent();
+            }
+        });
+
+        Self { limiter }
     }
 }
 

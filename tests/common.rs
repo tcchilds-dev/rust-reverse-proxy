@@ -548,6 +548,44 @@ pub async fn spawn_counting_backend(
     (port, call_count)
 }
 
+/// Like [`spawn_counting_backend`], but sets arbitrary response headers instead
+/// of just `Cache-Control`. Returns (port, call_count).
+pub async fn spawn_counting_backend_with_headers(
+    headers: Vec<(&'static str, &'static str)>,
+) -> (u16, Arc<AtomicU32>) {
+    let call_count = Arc::new(AtomicU32::new(0));
+    let call_count_clone = call_count.clone();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        let router = Router::new().fallback(move |req: Request<Body>| {
+            // Don't count health check requests from the balancer.
+            let is_health_check = req.uri().path() == "/healthz";
+            let count = if !is_health_check {
+                call_count_clone.fetch_add(1, Ordering::SeqCst)
+            } else {
+                call_count_clone.load(Ordering::SeqCst)
+            };
+            let headers = headers.clone();
+            async move {
+                let mut builder =
+                    axum::response::Response::builder().status(StatusCode::OK);
+                for (name, value) in headers {
+                    builder = builder.header(name, value);
+                }
+                builder
+                    .body(Body::from(format!(r#"{{"count":{count}}}"#)))
+                    .unwrap()
+            }
+        });
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    (port, call_count)
+}
+
 /// Spawns a backend that sleeps for `delay` before responding.
 pub async fn spawn_slow_backend(delay: Duration) -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -14,7 +14,8 @@ use axum::{
 ///
 /// - Strips hop-by-hop headers that are meaningful only for a single connection.
 /// - Sets `Host` to the backend address.
-/// - Injects/appends `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto`.
+/// - Sets `X-Forwarded-For` (replacing any client-supplied value), `X-Forwarded-Host`,
+///   and `X-Forwarded-Proto`.
 /// - Sets `X-Request-ID` to `request_id` (either propagated from the client or freshly generated).
 pub fn handle_request_headers(
     mut headers: HeaderMap,
@@ -40,6 +41,9 @@ pub fn handle_request_headers(
     headers.remove("proxy-authenticate");
     headers.remove("proxy-authorization");
     headers.remove("te");
+    // RFC 2616 lists "Trailers", but the header actually sent is "Trailer"
+    // (corrected in RFC 7230) — strip both to be safe.
+    headers.remove("trailer");
     headers.remove("trailers");
     headers.remove("transfer-encoding");
     headers.remove("upgrade");
@@ -79,6 +83,9 @@ pub fn handle_response_headers(mut response: Response) -> Response {
     headers.remove("proxy-authenticate");
     headers.remove("proxy-authorization");
     headers.remove("te");
+    // RFC 2616 lists "Trailers", but the header actually sent is "Trailer"
+    // (corrected in RFC 7230) — strip both to be safe.
+    headers.remove("trailer");
     headers.remove("trailers");
     headers.remove("transfer-encoding");
     headers.remove("upgrade");

@@ -53,7 +53,12 @@ fn build_response_from_cache(cached_response: &Arc<CachedResponse>) -> Response 
         .expect("Response builder should not fail with valid status and headers.")
 }
 
-#[tracing::instrument(skip(state))]
+// skip_all: recording `request` would log full headers, including
+// Authorization and Cookie values, at debug level.
+#[tracing::instrument(
+    skip_all,
+    fields(method = %request.method(), uri = %request.uri(), client = %client_addr)
+)]
 pub async fn proxy_handler(
     State(state): State<AppState>,
     ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
@@ -159,7 +164,13 @@ pub async fn proxy_handler(
     tracing::debug!(status = %result.status(), "upstream response");
 
     let status = result.status();
-    let should_cache_this = !is_authenticated && should_cache(&method, status, result.headers());
+    // If the upstream declares a Content-Length over the cache limit, skip the
+    // caching path entirely so the body streams through without being buffered.
+    let declared_too_large = result
+        .content_length()
+        .is_some_and(|len| len as usize > state.max_response_body_bytes);
+    let should_cache_this =
+        !is_authenticated && !declared_too_large && should_cache(&method, status, result.headers());
 
     let mut response_builder = axum::response::Response::builder().status(status);
     for (name, value) in result.headers() {
@@ -176,23 +187,22 @@ pub async fn proxy_handler(
             .await
             .map_err(ProxyError::UpstreamUnreachable)?;
 
-        // The buffered body may exceed the limit even without a Content-Length header.
-        if body_bytes.len() > state.max_response_body_bytes {
-            return Err(ProxyError::ResponseBodyTooLarge);
+        // The buffered body may exceed the limit even without a Content-Length
+        // header; in that case it is still returned to the client, just not cached.
+        if body_bytes.len() <= state.max_response_body_bytes {
+            state
+                .cache
+                .insert(
+                    cache_key,
+                    Arc::new(CachedResponse {
+                        status,
+                        headers: headers_for_cache,
+                        body: body_bytes.clone(),
+                        ttl,
+                    }),
+                )
+                .await;
         }
-
-        state
-            .cache
-            .insert(
-                cache_key,
-                Arc::new(CachedResponse {
-                    status,
-                    headers: headers_for_cache,
-                    body: body_bytes.clone(),
-                    ttl,
-                }),
-            )
-            .await;
 
         response_builder
             .body(axum::body::Body::from(body_bytes))

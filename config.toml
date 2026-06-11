@@ -27,7 +27,7 @@ addr = "0.0.0.0:8443"
 
 [logging]
 # One of: debug, info, warn, error.
-level = "debug"
+level = "info"
 
 [rate_limiting]
 # Steady-state request allowance per second per client IP (token bucket).

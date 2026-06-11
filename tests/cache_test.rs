@@ -156,6 +156,25 @@ async fn test_no_cache_responses_not_cached() {
 }
 
 #[tokio::test]
+async fn test_vary_responses_not_cached() {
+    let (backend_port, call_count) =
+        common::spawn_counting_backend_with_headers(vec![("vary", "accept-encoding")]).await;
+    let proxy_port = common::spawn_proxy(vec![route(backend_port)]).await;
+
+    common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // The cache key ignores content negotiation, so responses with Vary
+    // must not be cached at all.
+    common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "response with a Vary header was incorrectly cached"
+    );
+}
+
+#[tokio::test]
 async fn test_max_age_zero_responses_not_cached() {
     let (backend_port, call_count) = common::spawn_counting_backend(Some("max-age=0")).await;
     let proxy_port = common::spawn_proxy(vec![route(backend_port)]).await;

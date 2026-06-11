@@ -11,8 +11,6 @@ pub enum ProxyError {
     NoHealthyBackend,
     #[error("Upstream unreachable: {0}")]
     UpstreamUnreachable(#[from] reqwest::Error),
-    #[error("Response body too large.")]
-    ResponseBodyTooLarge,
 }
 
 impl IntoResponse for ProxyError {
@@ -21,7 +19,6 @@ impl IntoResponse for ProxyError {
             ProxyError::NoRouteFound(_) => StatusCode::NOT_FOUND,
             ProxyError::NoHealthyBackend => StatusCode::BAD_GATEWAY,
             ProxyError::UpstreamUnreachable(_) => StatusCode::BAD_GATEWAY,
-            ProxyError::ResponseBodyTooLarge => StatusCode::BAD_GATEWAY,
         };
 
         (status, self.to_string()).into_response()

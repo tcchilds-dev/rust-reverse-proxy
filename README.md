@@ -63,7 +63,7 @@ TraceLayer → AccessLogLayer → RateLimitLayer → ConcurrencyLimitLayer → T
 
 `proxy_handler()` in `src/proxy.rs`:
 
-1. Checks the in-memory response cache (GET/HEAD only; bypassed if `Authorization` header is present)
+1. Checks the in-memory response cache (GET/HEAD only; bypassed if an `Authorization` or `Cookie` header is present)
 2. Matches the request path against configured route prefixes
 3. Selects a backend via the load balancer
 4. Strips hop-by-hop and configured sensitive headers; injects `X-Forwarded-For/Host/Proto` and `X-Request-ID`
@@ -83,7 +83,7 @@ Each backend has an independent health-check loop running as a Tokio task. A cir
 
 ### Caching
 
-Cache keys are `"METHOD:full-URI"`. Only responses with [RFC 7231 cacheable status codes](https://www.rfc-editor.org/rfc/rfc7231#section-6.1) (200, 203, 204, 206, 300, 301, 404, 405, 410, 414, 501) are stored. TTL is extracted from the upstream `Cache-Control: max-age` value, falling back to `config.toml`'s `default_ttl`. Response bodies larger than `max_response_body_bytes` are returned to the client but not cached.
+Cache keys are `"METHOD:full-URI"`. Only responses with [RFC 7231 cacheable status codes](https://www.rfc-editor.org/rfc/rfc7231#section-6.1) (200, 203, 204, 206, 300, 301, 404, 405, 410, 414, 501) are stored. Because the cache key does not account for content negotiation, responses carrying a `Vary` header are never cached. TTL is extracted from the upstream `Cache-Control: max-age` value, falling back to `config.toml`'s `default_ttl`. Response bodies larger than `max_response_body_bytes` are returned to the client but not cached; when the upstream declares an oversized `Content-Length` up front, the proxy streams the response through without buffering it at all.
 
 ## Getting Started
 

@@ -69,6 +69,13 @@ fn is_cacheable_status(status: StatusCode) -> bool {
 }
 
 fn is_cacheable_by_headers(headers: &HeaderMap) -> bool {
+    // The cache key is method + URI only and does not account for content
+    // negotiation, so caching a response that varies (e.g. on Accept-Encoding
+    // or Origin) could serve the wrong representation to other clients.
+    if headers.contains_key("vary") {
+        return false;
+    }
+
     // Lowercase the entire value once so all directive comparisons are
     // case-insensitive (RFC 7234 says directives are case-insensitive).
     let cache_control = headers
