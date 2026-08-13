@@ -69,8 +69,8 @@ pub async fn proxy_handler(
     // one user's personalized response to another. Cookies count as
     // authentication: session cookies personalize responses just like
     // Authorization headers do.
-    let is_authenticated = request.headers().contains_key("authorization")
-        || request.headers().contains_key("cookie");
+    let is_authenticated =
+        request.headers().contains_key("authorization") || request.headers().contains_key("cookie");
     // Include the method in the cache key so HEAD and GET responses are stored
     // separately, and non-GET/HEAD requests never match a cached entry.
     let cache_key = format!("{}:{}", request.method(), request.uri());
@@ -118,7 +118,13 @@ pub async fn proxy_handler(
         parts.headers.remove(name);
     }
 
-    let headers = handle_request_headers(parts.headers, &guard.url, client_addr.ip(), scheme, &request_id);
+    let headers = handle_request_headers(
+        parts.headers,
+        &guard.url,
+        client_addr.ip(),
+        scheme,
+        &request_id,
+    );
 
     let url = build_url(&guard.url, path, query).expect("Valid path and backend should not fail.");
 
@@ -217,8 +223,12 @@ pub async fn proxy_handler(
     for name in &state.strip_response_headers {
         response.headers_mut().remove(name);
     }
-    response.extensions_mut().insert(UpstreamInfo(guard.url.clone()));
-    response.extensions_mut().insert(RouteInfo(route.path_prefix.clone()));
+    response
+        .extensions_mut()
+        .insert(UpstreamInfo(guard.url.clone()));
+    response
+        .extensions_mut()
+        .insert(RouteInfo(route.path_prefix.clone()));
     response.headers_mut().insert(
         "x-request-id",
         HeaderValue::from_str(&request_id).expect("request ID is always a valid header value"),

@@ -76,8 +76,14 @@ async fn client_supplied_x_forwarded_for_is_replaced() {
 
     let echo = parse_echo(&body);
     let xff = echo["headers"]["x-forwarded-for"].as_str().unwrap();
-    assert_eq!(xff, "127.0.0.1", "proxy must replace spoofed X-Forwarded-For");
-    assert!(!xff.contains("10.0.0.1"), "spoofed IP must not appear in the header");
+    assert_eq!(
+        xff, "127.0.0.1",
+        "proxy must replace spoofed X-Forwarded-For"
+    );
+    assert!(
+        !xff.contains("10.0.0.1"),
+        "spoofed IP must not appear in the header"
+    );
 }
 
 #[tokio::test]
@@ -140,7 +146,10 @@ async fn generates_request_id_when_absent() {
     // The same ID must be forwarded to the upstream backend.
     let echo = parse_echo(&body);
     let upstream_id = echo["headers"]["x-request-id"].as_str().unwrap();
-    assert_eq!(resp_id, upstream_id, "response and upstream X-Request-ID must match");
+    assert_eq!(
+        resp_id, upstream_id,
+        "response and upstream X-Request-ID must match"
+    );
 }
 
 #[tokio::test]
@@ -179,7 +188,8 @@ async fn strips_configured_request_header_before_forwarding() {
 #[tokio::test]
 async fn strips_configured_response_header_before_returning_to_client() {
     // Backend sets a header that reveals server internals.
-    let backend_port = spawn_backend_with_response_header("x-powered-by", "SecretFramework/1.0").await;
+    let backend_port =
+        spawn_backend_with_response_header("x-powered-by", "SecretFramework/1.0").await;
     let proxy_port = spawn_proxy_with_sensitive_headers(
         vec![RouteConfig {
             path_prefix: "/".to_string(),

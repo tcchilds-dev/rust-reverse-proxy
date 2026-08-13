@@ -31,8 +31,7 @@ async fn forwards_get_method() {
 async fn forwards_post_method() {
     let proxy_port = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::POST, "/data", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::POST, "/data", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
     let echo = parse_echo(&body);
     assert_eq!(echo["method"], "POST");
@@ -42,8 +41,7 @@ async fn forwards_post_method() {
 async fn forwards_put_method() {
     let proxy_port = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::PUT, "/data", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::PUT, "/data", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
     let echo = parse_echo(&body);
     assert_eq!(echo["method"], "PUT");
@@ -53,8 +51,7 @@ async fn forwards_put_method() {
 async fn forwards_delete_method() {
     let proxy_port = setup().await;
 
-    let (status, _, body) =
-        proxy_request(proxy_port, Method::DELETE, "/data", vec![], None).await;
+    let (status, _, body) = proxy_request(proxy_port, Method::DELETE, "/data", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
     let echo = parse_echo(&body);
     assert_eq!(echo["method"], "DELETE");

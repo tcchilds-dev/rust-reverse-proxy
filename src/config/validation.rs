@@ -45,7 +45,10 @@ fn validate_no_duplicate_paths(routes: &[RouteConfig]) -> bool {
 }
 
 fn validate_logger_level(level: &str) -> bool {
-    matches!(level.to_lowercase().as_str(), "debug" | "info" | "warn" | "error")
+    matches!(
+        level.to_lowercase().as_str(),
+        "debug" | "info" | "warn" | "error"
+    )
 }
 
 fn validate_backends_not_empty(routes: &[RouteConfig]) -> bool {
@@ -55,14 +58,11 @@ fn validate_backends_not_empty(routes: &[RouteConfig]) -> bool {
 }
 
 fn validate_backend_urls(routes: &[RouteConfig]) -> bool {
-    routes
-        .iter()
-        .flat_map(|r| r.backends.iter())
-        .all(|b| {
-            Url::parse(b)
-                .map(|u| matches!(u.scheme(), "http" | "https"))
-                .unwrap_or(false)
-        })
+    routes.iter().flat_map(|r| r.backends.iter()).all(|b| {
+        Url::parse(b)
+            .map(|u| matches!(u.scheme(), "http" | "https"))
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(test)]
@@ -157,7 +157,10 @@ mod tests {
         for level in &["debug", "info", "warn", "error"] {
             let mut config = base_config(vec![valid_route()]);
             config.logging.level = level.to_string();
-            assert!(validate_config(config).is_ok(), "level '{level}' should be valid");
+            assert!(
+                validate_config(config).is_ok(),
+                "level '{level}' should be valid"
+            );
         }
     }
 

@@ -10,10 +10,10 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use axum::{Router, body::Body, response::Response};
 use common::spawn_proxy_with_body_limits;
 use proxy::config::RouteConfig;
 use reqwest::StatusCode;
-use axum::{Router, body::Body, response::Response};
 
 fn route(backend_port: u16) -> Vec<RouteConfig> {
     vec![RouteConfig {
@@ -62,14 +62,22 @@ async fn cacheable_response_within_limit_is_returned_and_cached() {
     let (backend_port, call_count) = spawn_cacheable_backend(50, false).await;
     let proxy_port = spawn_proxy_with_body_limits(route(backend_port), 100).await;
 
-    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/")).await.unwrap();
+    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.bytes().await.unwrap().len(), 50);
 
     // Second request should be served from cache.
-    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/")).await.unwrap();
+    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(call_count.load(Ordering::SeqCst), 1, "response within limit was not cached");
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        1,
+        "response within limit was not cached"
+    );
 }
 
 #[tokio::test]
@@ -79,14 +87,22 @@ async fn cacheable_response_exceeding_limit_is_returned_but_not_cached() {
     let (backend_port, call_count) = spawn_cacheable_backend(200, false).await;
     let proxy_port = spawn_proxy_with_body_limits(route(backend_port), 100).await;
 
-    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/")).await.unwrap();
+    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.bytes().await.unwrap().len(), 200);
 
     // The oversized response must not have been cached.
-    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/")).await.unwrap();
+    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(call_count.load(Ordering::SeqCst), 2, "oversized response was incorrectly cached");
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "oversized response was incorrectly cached"
+    );
 }
 
 #[tokio::test]
@@ -96,11 +112,19 @@ async fn chunked_response_exceeding_limit_is_returned_but_not_cached() {
     let (backend_port, call_count) = spawn_cacheable_backend(200, true).await;
     let proxy_port = spawn_proxy_with_body_limits(route(backend_port), 100).await;
 
-    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/")).await.unwrap();
+    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.bytes().await.unwrap().len(), 200);
 
-    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/")).await.unwrap();
+    let resp = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(call_count.load(Ordering::SeqCst), 2, "oversized chunked response was incorrectly cached");
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        2,
+        "oversized chunked response was incorrectly cached"
+    );
 }

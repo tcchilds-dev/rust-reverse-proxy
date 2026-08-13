@@ -32,7 +32,11 @@ async fn test_get_response_is_cached() {
     let (status, _, _) =
         common::proxy_request(proxy_port, Method::GET, "/test", vec![], None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(call_count.load(Ordering::SeqCst), 1, "backend hit a second time — response was not cached");
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        1,
+        "backend hit a second time — response was not cached"
+    );
 }
 
 #[tokio::test]

@@ -43,7 +43,9 @@ impl AppState {
         let pool_idle_timeout = if config.connection_pool.idle_timeout_secs == 0 {
             None
         } else {
-            Some(Duration::from_secs(config.connection_pool.idle_timeout_secs))
+            Some(Duration::from_secs(
+                config.connection_pool.idle_timeout_secs,
+            ))
         };
         let client = reqwest::Client::builder()
             .pool_max_idle_per_host(config.connection_pool.max_idle_per_host)

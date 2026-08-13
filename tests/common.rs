@@ -19,11 +19,11 @@ use axum::extract::Request;
 use axum::{Extension, Router, routing::get};
 use axum_server::tls_rustls::{RustlsConfig, from_tcp_rustls};
 use http_body_util::BodyExt;
+use proxy::access_log::AccessLogLayer;
 use proxy::config::{
     CacheConfig, Config, HealthCheckConfig, LoggingConfig, RateLimitConfig, RouteConfig,
     SensitiveHeadersConfig, ServerConfig, TlsConfig,
 };
-use proxy::access_log::AccessLogLayer;
 use proxy::proxy::proxy_handler;
 use proxy::rate_limiter::RateLimitLayer;
 use proxy::state::{AppState, Scheme};
@@ -513,9 +513,7 @@ pub async fn proxy_request_https(
 
 /// Spawns a backend that counts how many times it has been called and optionally sets a
 /// `Cache-Control` header on every response. Returns (port, call_count).
-pub async fn spawn_counting_backend(
-    cache_control: Option<&'static str>,
-) -> (u16, Arc<AtomicU32>) {
+pub async fn spawn_counting_backend(cache_control: Option<&'static str>) -> (u16, Arc<AtomicU32>) {
     let call_count = Arc::new(AtomicU32::new(0));
     let call_count_clone = call_count.clone();
 
@@ -532,8 +530,7 @@ pub async fn spawn_counting_backend(
                 call_count_clone.load(Ordering::SeqCst)
             };
             async move {
-                let mut builder =
-                    axum::response::Response::builder().status(StatusCode::OK);
+                let mut builder = axum::response::Response::builder().status(StatusCode::OK);
                 if let Some(cc) = cache_control {
                     builder = builder.header("cache-control", cc);
                 }
@@ -570,8 +567,7 @@ pub async fn spawn_counting_backend_with_headers(
             };
             let headers = headers.clone();
             async move {
-                let mut builder =
-                    axum::response::Response::builder().status(StatusCode::OK);
+                let mut builder = axum::response::Response::builder().status(StatusCode::OK);
                 for (name, value) in headers {
                     builder = builder.header(name, value);
                 }

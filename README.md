@@ -1,17 +1,33 @@
 # Reverse Proxy
 
-A reverse proxy written in Rust using [Axum](https://github.com/tokio-rs/axum) and [Tower](https://github.com/tower-rs/tower). Demonstrates load balancing, response caching, rate limiting, observability, and security patterns found in production proxies.
+> [!NOTE] This README was (re-)written by myself. In respect of the reader's time.
+
+A reverse proxy written in Rust using [Axum](https://github.com/tokio-rs/axum) and [Tower](https://github.com/tower-rs/tower).
+
+I picked up Rust because I wanted to learn a low-level language, having at that
+stage only had decent experience in JavaScript and Python (I had a little early
+experience with C from CS50, but that was little more than a fever dream). I
+won't gush about it, but I loved Rust, and I found it took away a lot of the
+scary parts of other low-level languages (at least for my purposes).
+
+The proxy idea came from my reading of a blog post about a paper on load
+balancing algorithms, posted on Hacker News. I'm afraid the blog escapes me, but
+the paper was [The Power of Two Random Choices](https://www.eecs.harvard.edu/~michaelm/postscripts/handbook2001.pdf). That got me looking
+in to proxies, which seemed like a great way to practice a low-level language.
+
+[Here's a nice little animation showing off two random choices.](https://x.com/GrantSlatton/status/1754912113246798036)
 
 ## Features
 
-- **Load balancing** — power-of-two-random-choices algorithm with active health checks and a circuit breaker
-- **Response caching** — in-memory cache (Moka) with TTL sourced from `Cache-Control: max-age` or a configurable default
-- **Rate limiting** — per-IP token bucket via `governor`; returns `429 Too Many Requests` with a `Retry-After` header
-- **Concurrency limiting** — global cap on in-flight requests; excess requests are queued by Tower
-- **TLS** — optional HTTPS listener (Rustls) that runs alongside HTTP via `tokio::select!`
-- **Observability** — Prometheus metrics, structured access logging, and distributed tracing via Tower's `TraceLayer`
-- **Security** — hop-by-hop header stripping, configurable sensitive header suppression, `X-Forwarded-*` injection
-- **Connection pooling** — tunable keep-alive pool for upstream connections (reqwest)
+- **Load balancing**: using the power-of-two-random-choices algorithm.
+- **Response caching** — in-memory cache using [Moka](https://docs.rs/moka/latest/moka/) with TTL sourced from
+  `Cache-Control: max-age` or a configurable default.
+- **Rate limiting** — per-IP token bucket using [governor](https://docs.rs/governor/latest/governor/).
+- **Concurrency limiting** — global cap on in-flight requests; excess requests are queued by Tower.
+- **TLS Termination** — optional HTTPS listener (Rustls) that runs alongside HTTP via `tokio::select!`.
+- **Observability** — Prometheus metrics, structured access logging, and distributed tracing via Tower's `TraceLayer`.
+- **Security** — hop-by-hop header stripping, configurable sensitive header suppression, `X-Forwarded-*` injection.
+- **Connection pooling** — tunable keep-alive pool for upstream connections.
 
 ## Architecture
 
@@ -23,15 +39,16 @@ TraceLayer → AccessLogLayer → RateLimitLayer → ConcurrencyLimitLayer → T
 
 `proxy_handler()` in `src/proxy.rs`:
 
-1. Checks the in-memory response cache (GET/HEAD only; bypassed if an `Authorization` or `Cookie` header is present)
-2. Matches the request path against configured route prefixes
-3. Selects a backend via the load balancer
-4. Strips hop-by-hop and configured sensitive headers; injects `X-Forwarded-For/Host/Proto` and `X-Request-ID`
-5. Forwards the request upstream using `reqwest`
-6. Stores cacheable responses in the cache
-7. Streams the response back to the client
+1. Checks the in-memory response cache (GET/HEAD only; bypassed if an `Authorization` or `Cookie` header is present).
+2. Matches the request path against configured route prefixes.
+3. Selects a backend via the load balancer.
+4. Strips hop-by-hop and configured sensitive headers; injects `X-Forwarded-For/Host/Proto` and `X-Request-ID`.
+5. Forwards the request upstream using `reqwest`.
+6. Stores cacheable responses in the cache.
+7. Streams the response back to the client.
 
-The `/metrics` endpoint is served on a separate router that bypasses the proxy middleware stack entirely (no rate limiting, no timeouts).
+The `/metrics` endpoint is served on a separate router that bypasses the proxy
+middleware stack entirely (no rate limiting, no timeouts).
 
 ### Load Balancer
 
@@ -41,18 +58,15 @@ Connection counts are maintained via a `ConnectionGuard` RAII wrapper — the co
 
 Each backend has an independent health-check loop running as a Tokio task. A circuit breaker requires 3 consecutive failures to mark a backend unhealthy and 3 consecutive successes to restore it. The tasks are aborted when the balancer is dropped.
 
-### Caching
-
-Cache keys are `"METHOD:full-URI"`. Only responses with [RFC 7231 cacheable status codes](https://www.rfc-editor.org/rfc/rfc7231#section-6.1) (200, 203, 204, 206, 300, 301, 404, 405, 410, 414, 501) are stored. Because the cache key does not account for content negotiation, responses carrying a `Vary` header are never cached. TTL is extracted from the upstream `Cache-Control: max-age` value, falling back to `config.toml`'s `default_ttl`. Response bodies larger than `max_response_body_bytes` are returned to the client but not cached; when the upstream declares an oversized `Content-Length` up front, the proxy streams the response through without buffering it at all.
-
-## Getting Started
+## Installation
 
 ```bash
 cargo build --release
 cargo run --release
 ```
 
-The proxy reads `config.toml` from the working directory on startup. Edit the `[[routes]]` sections to point at your backends before running.
+The proxy reads `config.toml` from the working directory on startup.
+Edit the `[[routes]]` sections to point at your backends before running.
 
 ```toml
 [[routes]]
@@ -117,11 +131,13 @@ path_prefix = "/b"
 backends = ["http://localhost:3005"]
 ```
 
-Routes are matched top-down. Make sure to order routes from most to least specific.
+> [!WARNING] Routes are matched top-down. Make sure to order routes from most to least specific.
 
 ## Testing
 
-Tests use real servers bound to OS-assigned ports so they can run in parallel without collisions. There are no mocks — each test exercises the full production middleware stack.
+Tests use real servers bound to OS-assigned ports so they can run in parallel
+without collisions. There are no mocks — each test exercises the full
+production middleware stack.
 
 ```bash
 cargo test                            # all tests
@@ -129,24 +145,12 @@ cargo test --test forwarding_test     # single file
 cargo test -- --nocapture --test-threads=1  # with log output
 ```
 
-## Key Dependencies
-
-| Crate                                     | Role                                                             |
-| ----------------------------------------- | ---------------------------------------------------------------- |
-| `axum`                                    | HTTP server and router                                           |
-| `tower` / `tower-http`                    | Middleware stack (rate limiting, concurrency, timeouts, tracing) |
-| `reqwest`                                 | Upstream HTTP client with connection pooling                     |
-| `moka`                                    | Async-native, thread-safe in-memory cache                        |
-| `governor`                                | Token-bucket rate limiter                                        |
-| `axum-server`                             | TLS listener via Rustls                                          |
-| `metrics` + `metrics-exporter-prometheus` | Prometheus metrics                                               |
-| `tokio`                                   | Async runtime                                                    |
-
 ## AI Usage Report
 
-Intellectual honesty is important to me. Below I'll detail AI involvement for each feature.
+Intellectual honesty is important to me. Below I'll detail AI involvement for
+each feature.
 
-**Entirely** written by me. No `Claude Code` usage at all:
+**Entirely** written by me:
 
 - Main server set up
 - Config set up and conversion
@@ -161,11 +165,11 @@ Intellectual honesty is important to me. Below I'll detail AI involvement for ea
 - `prometheus + grafana` Metrics
 - `moka` Response Caching
 
-Written by `Claude Code`, checked and understood **thoroughly** by me:
+Assisted by AI, _thoroughly_ checked and edited by myself:
 
-- Comments (some edits made by myself)
-- README (I made some corrections, as well as this AI report section)
-- After review changes:
+- Comments
+- README (originally AI generated, re-written by me)
+- Post review tweaks and changes:
   - bug fixes (some implemented by myself)
   - structured request logging
   - request ID propagation
@@ -173,7 +177,7 @@ Written by `Claude Code`, checked and understood **thoroughly** by me:
   - sensitive header stripping configuration
   - connection pooling configuration
 
-Written by `Claude Code`, checked and understood **moderately** by me:
+Largely generated by AI, checked by myself, and edited where necessary:
 
-- Simple test backends for dev purposes (had to make an edit)
-- Integration tests (I made sure to understand the structure of the tests)
+- Simple test backends for dev purposes
+- Integration tests

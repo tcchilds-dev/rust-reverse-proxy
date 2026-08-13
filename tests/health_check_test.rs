@@ -101,7 +101,11 @@ async fn backend_recovers_after_health_check_passes() {
     tokio::time::sleep(Duration::from_secs(4)).await;
 
     let (status, _) = proxy_get(proxy_port, "/test").await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY, "should be 502 before recovery");
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "should be 502 before recovery"
+    );
 
     // Start a real backend on the previously dead port.
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{dead}"))
